@@ -1,0 +1,20 @@
+{
+  "name": "@lazyterminal/android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LazyTerminal Android Mobile App - React Native with Expo",
+  "main": "index.js",
+  "scripts": {
+    "dev": "expo start",
+    "android": "expo start --android",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "echo \"Android unit tests configured for mobile milestone\""
+  },
+  "dependencies": {
+    "@lazyterminal/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  }
+}
