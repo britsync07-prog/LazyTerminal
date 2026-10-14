@@ -1,70 +1,149 @@
-import React, { useRef, useEffect } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import React, { useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { XTERM_HTML } from '../assets/xterm-bundle';
 
-interface TerminalViewProps {
+export interface TerminalViewHandle {
+  scrollToBottom: () => void;
+  scrollToTop: () => void;
+  scrollLines: (lines: number) => void;
+  setFontSize: (size: number) => void;
+  fit: () => void;
+  focus: () => void;
+}
+
+export interface TerminalViewProps {
   sessionId: string;
   onInput: (data: string) => void;
   onResize?: (cols: number, rows: number) => void;
   lastOutput?: string;
+  initialOutput?: string;
+  fontSize?: number;
+  onScrollStatusChange?: (sessionId: string, isScrolledUp: boolean, linesFromBottom: number) => void;
 }
 
-export const TerminalView: React.FC<TerminalViewProps> = ({
-  sessionId,
-  onInput,
-  onResize,
-  lastOutput,
-}) => {
-  const webViewRef = useRef<WebView>(null);
+export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
+  (
+    {
+      sessionId,
+      onInput,
+      onResize,
+      lastOutput,
+      initialOutput,
+      fontSize = 13,
+      onScrollStatusChange,
+    },
+    ref,
+  ) => {
+    const webViewRef = useRef<WebView>(null);
+    const isReadyRef = useRef<boolean>(false);
 
-  // Injects incoming output into the WebView
-  useEffect(() => {
-    if (lastOutput && webViewRef.current) {
-      const payload = JSON.stringify({ type: 'output', data: lastOutput });
-      const jsCode = `
-        if (window.handleMessage) {
-          window.handleMessage({ data: ${JSON.stringify(payload)} });
-        }
-      `;
-      webViewRef.current.injectJavaScript(jsCode);
-    }
-  }, [lastOutput]);
+    useImperativeHandle(
+      ref,
+      () => ({
+        scrollToBottom: () => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript('if (window.scrollToBottom) { window.scrollToBottom(); } true;');
+          }
+        },
+        scrollToTop: () => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript('if (window.scrollToTop) { window.scrollToTop(); } true;');
+          }
+        },
+        scrollLines: (lines: number) => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`if (window.scrollLines) { window.scrollLines(${lines}); } true;`);
+          }
+        },
+        setFontSize: (size: number) => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript(`if (window.setFontSize) { window.setFontSize(${size}); } true;`);
+          }
+        },
+        fit: () => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript('if (window.fitTerminal) { window.fitTerminal(); } true;');
+          }
+        },
+        focus: () => {
+          if (webViewRef.current) {
+            webViewRef.current.injectJavaScript('if (window.focusTerminal) { window.focusTerminal(); } true;');
+          }
+        },
+      }),
+      [],
+    );
 
-  const handleMessage = (event: WebViewMessageEvent) => {
-    try {
-      const msg = JSON.parse(event.nativeEvent.data);
-      if (msg.type === 'input') {
-        onInput(msg.data);
-      } else if (msg.type === 'resize' && onResize) {
-        onResize(msg.cols, msg.rows);
+    // Injects incoming output into the WebView
+    useEffect(() => {
+      if (lastOutput && webViewRef.current) {
+        const jsCode = `if (window.writeTerminal) { window.writeTerminal(${JSON.stringify(lastOutput)}); } true;`;
+        webViewRef.current.injectJavaScript(jsCode);
       }
-    } catch {
-      // ignore malformed payloads
-    }
-  };
+    }, [lastOutput]);
 
-const WebViewComponent = WebView as unknown as React.ComponentType<any>;
+    // Updates font size if changed
+    useEffect(() => {
+      if (isReadyRef.current && webViewRef.current) {
+        webViewRef.current.injectJavaScript(`if (window.setFontSize) { window.setFontSize(${fontSize}); } true;`);
+      }
+    }, [fontSize]);
 
-  return (
-    <View style={styles.container}>
-      <WebViewComponent
-        ref={webViewRef}
-        originWhitelist={['*']}
-        source={{ html: XTERM_HTML }}
-        style={styles.webView}
-        onMessage={handleMessage}
-        javaScriptEnabled={true}
-        domStorageEnabled={true}
-        scrollEnabled={false}
-        overScrollMode="never"
-        keyboardDisplayRequiresUserAction={false}
-        automaticallyAdjustContentInsets={false}
-        scalesPageToFit={false}
-      />
-    </View>
-  );
-};
+    const handleMessage = (event: WebViewMessageEvent) => {
+      try {
+        const msg = JSON.parse(event.nativeEvent.data);
+        if (msg.type === 'input') {
+          onInput(msg.data);
+        } else if (msg.type === 'resize' && onResize) {
+          onResize(msg.cols, msg.rows);
+        } else if (msg.type === 'scrollStatus' && onScrollStatusChange) {
+          onScrollStatusChange(sessionId, !!msg.isScrolledUp, msg.linesFromBottom || 0);
+        } else if (msg.type === 'ready') {
+          isReadyRef.current = true;
+          if (fontSize !== 13 && webViewRef.current) {
+            webViewRef.current.injectJavaScript(`if (window.setFontSize) { window.setFontSize(${fontSize}); } true;`);
+          }
+          if (initialOutput && webViewRef.current) {
+            const jsCode = `if (window.writeTerminal) { window.writeTerminal(${JSON.stringify(initialOutput)}); } true;`;
+            webViewRef.current.injectJavaScript(jsCode);
+          }
+          if (onResize && msg.cols && msg.rows) {
+            onResize(msg.cols, msg.rows);
+          }
+        }
+      } catch {
+        // ignore malformed payloads
+      }
+    };
+
+    const WebViewComponent = WebView as unknown as React.ComponentType<any>;
+
+    return (
+      <View style={styles.container}>
+        <WebViewComponent
+          ref={webViewRef}
+          originWhitelist={['*']}
+          source={{ html: XTERM_HTML }}
+          style={styles.webView}
+          onMessage={handleMessage}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          scrollEnabled={true}
+          nestedScrollEnabled={true}
+          overScrollMode="never"
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
+          keyboardDisplayRequiresUserAction={false}
+          automaticallyAdjustContentInsets={false}
+          scalesPageToFit={false}
+        />
+      </View>
+    );
+  },
+);
+
+TerminalView.displayName = 'TerminalView';
 
 const styles = StyleSheet.create({
   container: {

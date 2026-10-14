@@ -6,17 +6,21 @@
   "main": "index.js",
   "scripts": {
     "dev": "expo start",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:apk": "node scripts/build-apk.js"
   },
   "dependencies": {
     "@babel/runtime": "^7.26.0",
     "@lazyterminal/protocol": "workspace:*",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "expo": "~57.0.28",
     "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-safe-area-context": "~5.7.0",
     "react-native-webview": "13.16.1"
   },
   "devDependencies": {

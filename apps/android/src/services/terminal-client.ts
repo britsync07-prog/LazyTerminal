@@ -21,6 +21,7 @@ export class TerminalClient {
   private tabs: TerminalTab[] = [];
   private activeTabId: string | null = null;
   private authToken: string | null = null;
+  private sessionOutputHistory = new Map<string, string>();
   private pendingCreateRequests = new Map<
     string,
     { resolve: (sessionId: string) => void; reject: (err: Error) => void }
@@ -55,6 +56,14 @@ export class TerminalClient {
     if (this.tabs.some((t) => t.id === id)) {
       this.activeTabId = id;
     }
+  }
+
+  public getSessionHistory(sessionId: string): string {
+    return this.sessionOutputHistory.get(sessionId) || '';
+  }
+
+  public refreshSessionList(): void {
+    this.sendMessage({ type: 'session:list' });
   }
 
   public onStateChange(listener: StateListener): () => void {
@@ -248,11 +257,70 @@ export class TerminalClient {
       case 'auth:pair_success': {
         this.authToken = msg.token;
         this.setState('connected');
+        this.refreshSessionList();
         break;
       }
 
       case 'auth:success': {
         this.setState('connected');
+        this.refreshSessionList();
+        break;
+      }
+
+      case 'session:list_response': {
+        for (const sess of msg.sessions) {
+          if (!this.tabs.some((t) => t.id === sess.sessionId)) {
+            const newTab: TerminalTab = {
+              id: sess.sessionId,
+              title: `Terminal ${this.tabs.length + 1}`,
+              cols: sess.cols,
+              rows: sess.rows,
+              createdAt: sess.createdAt,
+            };
+            this.tabs.push(newTab);
+            for (const listener of this.sessionCreatedListeners) {
+              listener(newTab);
+            }
+          }
+        }
+        if (!this.activeTabId && this.tabs.length > 0) {
+          this.activeTabId = this.tabs[0].id;
+        }
+        break;
+      }
+
+      case 'session:created': {
+        if (!this.tabs.some((t) => t.id === msg.session.sessionId)) {
+          const newTab: TerminalTab = {
+            id: msg.session.sessionId,
+            title: `Terminal ${this.tabs.length + 1}`,
+            cols: msg.session.cols,
+            rows: msg.session.rows,
+            createdAt: msg.session.createdAt,
+          };
+          this.tabs.push(newTab);
+          if (!this.activeTabId) {
+            this.activeTabId = newTab.id;
+          }
+          for (const listener of this.sessionCreatedListeners) {
+            listener(newTab);
+          }
+        }
+        break;
+      }
+
+      case 'session:closed': {
+        this.removeTab(msg.sessionId);
+        break;
+      }
+
+      case 'session:attached': {
+        if (msg.recentOutput) {
+          this.sessionOutputHistory.set(msg.sessionId, msg.recentOutput.slice(-65536));
+          for (const listener of this.outputListeners) {
+            listener(msg.sessionId, msg.recentOutput);
+          }
+        }
         break;
       }
 
@@ -261,19 +329,21 @@ export class TerminalClient {
         if (pending) {
           this.pendingCreateRequests.delete(msg.requestId);
 
-          const newTab: TerminalTab = {
-            id: msg.sessionId,
-            title: `Terminal ${this.tabs.length + 1}`,
-            cols: msg.cols,
-            rows: msg.rows,
-            createdAt: Date.now(),
-          };
+          if (!this.tabs.some((t) => t.id === msg.sessionId)) {
+            const newTab: TerminalTab = {
+              id: msg.sessionId,
+              title: `Terminal ${this.tabs.length + 1}`,
+              cols: msg.cols,
+              rows: msg.rows,
+              createdAt: Date.now(),
+            };
 
-          this.tabs.push(newTab);
-          this.activeTabId = newTab.id;
+            this.tabs.push(newTab);
+            this.activeTabId = newTab.id;
 
-          for (const listener of this.sessionCreatedListeners) {
-            listener(newTab);
+            for (const listener of this.sessionCreatedListeners) {
+              listener(newTab);
+            }
           }
 
           pending.resolve(msg.sessionId);
@@ -282,6 +352,8 @@ export class TerminalClient {
       }
 
       case 'terminal:output': {
+        const prev = this.sessionOutputHistory.get(msg.sessionId) || '';
+        this.sessionOutputHistory.set(msg.sessionId, (prev + msg.data).slice(-65536));
         for (const listener of this.outputListeners) {
           listener(msg.sessionId, msg.data);
         }

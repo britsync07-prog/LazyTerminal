@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LazyTerminal — Desktop Terminal Manager</title>
+  <link rel="stylesheet" href="vendor/xterm.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <!-- Top Bar -->
+    <header id="top-bar">
+      <div class="logo-area">
+        <span class="logo-icon">⚡</span>
+        <span class="logo-title">LazyTerminal</span>
+        <span class="version-tag">v0.1.0</span>
+      </div>
+
+      <div class="agent-status-panel">
+        <div id="status-pill" class="status-pill stopped">
+          <span class="status-dot"></span>
+          <span id="status-text">Agent: Stopped</span>
+        </div>
+        <span id="agent-endpoint" class="agent-endpoint">ws://127.0.0.1:4488</span>
+        <span id="agent-mode" class="badge">LAN Secure</span>
+      </div>
+
+      <div class="top-actions">
+        <button id="btn-toggle-agent" class="btn btn-primary">Start Agent</button>
+        <button id="btn-copy-token" class="btn btn-secondary" title="Copy primary authentication token">Copy Token</button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div id="workspace">
+      <!-- Left Sidebar: Session & Discovery Manager -->
+      <aside id="sidebar">
+        <!-- Managed Sessions -->
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>Managed Sessions</h3>
+            <button id="btn-new-session" class="btn btn-sm btn-success" title="Spawn a new PowerShell session">+ New</button>
+          </div>
+          <div id="session-list" class="session-list">
+            <div class="empty-state">No managed sessions open.<br>Click "+ New" or connect from mobile app.</div>
+          </div>
+        </div>
+
+        <!-- Discovered External Consoles -->
+        <div class="sidebar-section">
+          <div class="section-header">
+            <h3>External Windows Consoles</h3>
+            <button id="btn-refresh-sessions" class="btn btn-sm btn-secondary" title="Scan for terminal processes">↻ Refresh</button>
+          </div>
+          <p class="discovery-notice">
+            Windows kernel security boundaries make external ConPTY handles private. Direct stream attachment is unsupported. Click below to spawn a mirrored session in that directory:
+          </p>
+          <div id="external-list" class="external-list">
+            <div class="empty-state">Scanning for external consoles...</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Right Area: Terminal Viewport -->
+      <main id="terminal-viewport">
+        <div id="terminal-header" class="terminal-header hidden">
+          <div class="session-info">
+            <span class="status-indicator"></span>
+            <span id="active-session-title">Session: None</span>
+            <span id="active-session-meta" class="meta-badge">powershell.exe</span>
+          </div>
+          <div class="terminal-controls">
+            <button id="btn-detach-terminal" class="btn btn-sm btn-secondary" title="Detach viewer but keep session running for phone">Detach (Keep Alive)</button>
+            <button id="btn-close-terminal" class="btn btn-sm btn-danger" title="Terminate PowerShell process">Close Session ✕</button>
+          </div>
+        </div>
+
+        <div id="terminal-container">
+          <div id="no-session-overlay" class="no-session-overlay">
+            <div class="empty-prompt">
+              <h2>No Session Attached</h2>
+              <p>Select a managed session from the sidebar or click "+ New" to open a terminal.</p>
+              <button id="btn-overlay-new" class="btn btn-primary">+ Open PowerShell Terminal</button>
+            </div>
+          </div>
+          <div id="terminal-element"></div>
+        </div>
+
+        <footer id="status-bar">
+          <div class="status-left">
+            <span id="status-dims">Dimensions: 80x24</span>
+            <span id="status-clients">Attached Clients: 0</span>
+          </div>
+          <div class="status-right">
+            <span id="status-conn">Connected to Agent</span>
+          </div>
+        </footer>
+      </main>
+    </div>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

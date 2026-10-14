@@ -16,12 +16,14 @@ export function loadConfigFromEnv(): Partial<AgentConfig> {
   // For loopback, requireAuth defaults to false unless explicitly set to true.
   const requireAuthEnv = process.env.LAZYTERMINAL_REQUIRE_AUTH;
   const requireAuth = !isLoopback || requireAuthEnv === 'true' || requireAuthEnv === '1';
+  const authToken = process.env.LAZYTERMINAL_TOKEN;
 
   return {
     host,
     port,
     maxSessions,
     requireAuth,
+    authToken,
   };
 }
 
@@ -50,10 +52,23 @@ export function formatStartupBanner(info: AgentServerInfo): string {
     ` Authentication: ${authDesc}`,
     ` Remote Network Access: ${accessDesc}`,
     ` Max Concurrent Sessions: ${info.maxSessions}`,
+  ];
+
+  if (info.requireAuth && info.authToken) {
+    lines.push(
+      ` Desktop Auth Token: ${info.authToken}`,
+      ` Connect PC Viewer: pnpm dev:viewer --token ${info.authToken}`,
+    );
+    if (info.tokenFilePath) {
+      lines.push(` Stored Token File: ${info.tokenFilePath}`);
+    }
+  }
+
+  lines.push(
     ' Notice: Commands execute with the active Windows user\'s privileges.',
     ' Press Ctrl+C to terminate the agent.',
     '================================================================',
-  ];
+  );
 
   return lines.join('\n');
 }

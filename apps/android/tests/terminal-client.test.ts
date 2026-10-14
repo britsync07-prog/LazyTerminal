@@ -203,4 +203,50 @@ describe('TerminalClient (Mobile Protocol Service)', () => {
     expect(closeSent.type).toBe('terminal:close');
     expect(closeSent.sessionId).toBe('sess-to-close');
   });
+
+  it('mirrors externally created sessions and maintains output history', async () => {
+    const client = new TerminalClient();
+    client.connect({ host: '127.0.0.1', port: 4488 });
+    await new Promise((r) => setTimeout(r, 20));
+
+    const ws = MockWebSocket.instances[0];
+    ws.emitServerMessage({ type: 'auth:success' });
+
+    // Simulate session created from PC viewer or another client
+    ws.emitServerMessage({
+      type: 'session:created',
+      session: {
+        sessionId: 'sess-pc-1',
+        shell: 'powershell.exe',
+        cols: 120,
+        rows: 30,
+        createdAt: Date.now(),
+        attachedClients: 1,
+        status: 'active',
+        title: 'PowerShell',
+      },
+    });
+
+    expect(client.getTabs().length).toBe(1);
+    expect(client.getActiveTabId()).toBe('sess-pc-1');
+
+    // Output arrives for this session
+    ws.emitServerMessage({
+      type: 'terminal:output',
+      sessionId: 'sess-pc-1',
+      data: 'Hello from PC\r\n',
+    });
+
+    expect(client.getSessionHistory('sess-pc-1')).toBe('Hello from PC\r\n');
+
+    // Closed from PC
+    ws.emitServerMessage({
+      type: 'session:closed',
+      sessionId: 'sess-pc-1',
+      exitCode: 0,
+    });
+
+    expect(client.getTabs().length).toBe(0);
+    expect(client.getActiveTabId()).toBeNull();
+  });
 });

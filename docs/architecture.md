@@ -101,9 +101,77 @@ sequenceDiagram
 
 ---
 
-## 5. Roadmap
+---
+
+## 5. Desktop Terminal Mirroring & Process Discovery (Task 003)
+
+### 5.1 ConPTY Handle Ownership & Multi-Client Mirroring
+Windows ConPTY (`CreatePseudoConsole`) creates paired input/output pipes owned by the spawning agent process (`node-pty` in `SessionRegistry`).
+- **Handle Ownership**: ConPTY anonymous pipes cannot be directly shared across independent OS processes via handle inheritance once spawned.
+- **WebSocket Mirroring Architecture**: Instead of trying to duplicate private OS handles, the LazyTerminal Windows Agent acts as the central session multiplexer:
+  - Input from any authenticated client (mobile app or PC viewer CLI) is written to `pty.write()`.
+  - PTY output chunks are buffered in a sliding ring (64 KB) in `SessionRegistry` and broadcast to all connected clients attached to that session.
+  - When a second client attaches (`session:attach`), it immediately receives the sliding output buffer (`session:attached` with `recentOutput`) to reconstruct the screen.
+  - Detaching (`session:detach` or `Ctrl+]` in PC viewer) unbinds the viewer without terminating the background PowerShell process.
+  - Only explicit `terminal:close` or shell exit terminates the underlying process.
+
+### 5.2 External Windows Process Discovery & Architectural Boundaries
+LazyTerminal can enumerate running Windows terminal processes (`powershell.exe`, `pwsh.exe`, `cmd.exe`, `WindowsTerminal.exe`) via `Get-Process`:
+- **Unmanaged Classification**: External processes are classified in `session:list_response` as `managed: false, attachable: false`.
+- **Architectural Boundary**: Windows intentionally isolates console handles. Attaching to an already-running external Windows Terminal tab or independent `powershell.exe` window would require:
+  1. `AttachConsole(pid)` — Windows allows a process to attach to at most one console at a time, and fails if the target process is not a direct child or if the caller already has a console.
+  2. Invasive DLL Injection / API Hooking — Injecting threads into another user process to divert stdout/stdin pipes is blocked by Windows security policies, triggers antivirus / Windows Defender heuristic alerts, and causes shell instability.
+- **LazyTerminal Design Decision**: LazyTerminal cleanly respects OS process boundaries. Rather than hacking external processes, LazyTerminal provides a clean, native experience where users spawn and manage isolated ConPTY sessions that can be mirrored on PC and controlled from mobile.
+
+### 5.3 Mobile Rendering Pipeline with `@xterm/xterm` (v6)
+Mobile terminal rendering uses official `@xterm/xterm` (v6.0.0, MIT) and `@xterm/addon-fit` bundled completely offline inside the Android WebView:
+- **No Hand-Rolled ANSI Parsers**: Full VT100/VT220/VT500 escape sequence processing, PSReadLine cursor positioning, syntax highlighting, and color palettes.
+- **Direct Terminal Input**: `term.onData()` forwards keystrokes directly to the agent without duplicate key events or losing backspace/arrow navigation.
+- **Tab Preservation**: WebViews remain mounted in the React Native view hierarchy using absolute positioning and opacity toggling, preserving xterm scrollback history and avoiding expensive DOM re-renders upon tab switching.
+
+---
+
+---
+
+## 7. Production Applications & UX Architecture (Task 004)
+
+### 7.1 Android Terminal UX & Scrolling Architecture
+- **Touch Gesture Translation**: Terminal scrolling is implemented directly inside the WebView's `#terminal-container` via low-latency touch listeners (`touchstart`, `touchmove`, `touchend`).
+- **Momentum Physics**: Flick gestures compute touch velocity and execute smooth exponential decay animation (`lines * 0.92`), providing a native feel.
+- **Scrollback Buffer**: Set to 10,000 lines with `scrollOnUserInput: true` to prevent jumpy navigation when inspecting prior command logs.
+- **Return to Bottom Floating Action**: When the user scrolls up past 3 lines, a floating badge displays `▼ Return to live output (N lines up)` and instantly jumps to the latest output on tap.
+- **Dynamic Font Scaling**: Real-time font size adjustment (`A-` / `A+` controls in the touch toolbar, clamped between 9px and 22px) dynamically updates the xterm CSS and triggers `@xterm/addon-fit` to recalculate grid dimensions.
+- **Safe Area Migration**: Replaced deprecated `react-native` `SafeAreaView` with `react-native-safe-area-context` and wrapped the application root in `<SafeAreaProvider>`, eliminating layout warnings across Android edge-to-edge displays.
+
+### 7.2 Existing-Terminal Integration & Safe Migration
+- **Technical ConPTY Limitations**: As analyzed in Section 5.2, directly hijacking an already-running external PowerShell process console on Windows is prevented by kernel handle boundaries and requires invasive DLL injection.
+- **Safe Directory Migration ("Spawn Managed Session Here")**:
+  - The agent queries `Get-Process` to identify external PowerShell, cmd, and Windows Terminal instances.
+  - Where accessible, the agent resolves the process's working directory or provides quick spawn actions.
+  - The Desktop UI and Android UI offer a 1-click "Spawn Managed Session in Directory" action. This creates a fully managed, isolated LazyTerminal ConPTY session with the identical working environment, allowing instant mobile and PC access without risking the stability of external processes.
+
+### 7.3 Windows Desktop GUI Application (`LazyTerminal.exe`)
+- **Native GUI Client**: Packaged into a standalone Windows executable (`LazyTerminal.exe`) using Electron with GitHub-dark aesthetics.
+- **Dual Functionality**: Combines a real-time terminal viewer (via `@xterm/xterm`) and a session manager dashboard.
+- **Independent Agent Lifecycle**:
+  - The background Node.js agent is decoupled from Electron's process tree and can run as an independent detached service.
+  - When closing the Desktop GUI, if sessions are active, a confirmation dialog offers:
+    - **Keep Agent Running in Background**: Closes the desktop window while keeping the agent and all PowerShell sessions alive for mobile phone access.
+    - **Stop Agent & Exit**: Terminates both GUI and background sessions cleanly.
+    - **Cancel**: Keeps the desktop window open.
+- **One-Click Shortcuts**: Packaging automatically produces `install-shortcuts.ps1` (creates Desktop and Start Menu `.lnk` shortcuts), `uninstall.ps1`, and `Start-LazyTerminal.cmd`.
+
+### 7.4 Standalone Android APK Pipeline
+- **EAS Build Configuration (`eas.json`)**: Configured with `preview` and `production` profiles setting `buildType: "apk"` for standalone sideloadable Android packages without Google Play Store signing requirements.
+- **Network Permissions**: Configured in `app.json` with `android.permission.INTERNET`, `ACCESS_NETWORK_STATE`, and `usesCleartextTraffic: true` for reliable local LAN Wi-Fi WebSocket connectivity.
+- **Self-Contained Bundling**: The entire xterm.js runtime, CSS styling, and addon fit libraries are bundled into offline assets, requiring zero internet access during mobile terminal execution.
+
+---
+
+## 8. Roadmap
 
 - **Milestone 001 (Completed)**: Monorepo setup, shared protocol with Zod, Windows agent with `node-pty`, unit & Windows integration tests.
-- **Milestone 002**: Android mobile application with Expo, multi-tab terminal switching, xterm.js WebView renderer, virtual keyboard toolbar.
-- **Milestone 003**: Cryptographic pairing, authenticated connection handshake (mTLS / Noise protocol), reconnection persistence.
-- **Milestone 004**: Direct peer-to-peer remote connectivity (WebRTC DataChannels with STUN/TURN, without VPS requirements).
+- **Milestone 002 (Completed)**: Android mobile application with Expo (SDK 57), pairing & authentication flow, multi-tab terminal switching, virtual keyboard toolbar.
+- **Milestone 003 (Completed)**: PC terminal mirroring CLI (`pnpm dev:viewer`), session discovery (`session:list`, `session:attach`, `session:detach`), real `@xterm/xterm` v6 offline bundle, multi-client streaming.
+- **Milestone 004 (Completed)**: Production Android scrolling UX, font sizing, safe area context, Windows desktop GUI (`LazyTerminal.exe`), background agent lifecycle persistence, external terminal discovery/migration, and standalone APK pipeline.
+- **Milestone 005 (Next)**: Direct peer-to-peer remote connectivity (WebRTC DataChannels with STUN/TURN, without VPS requirements).

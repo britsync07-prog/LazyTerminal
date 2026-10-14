@@ -18,16 +18,39 @@ export interface PairingResult {
   code?: string;
 }
 
+export interface PairingManagerOptions {
+  pairingTimeoutMs?: number;
+  maxAttempts?: number;
+  initialTokens?: string[];
+}
+
 export class PairingManager extends EventEmitter {
   private activeRequest: PairingRequest | null = null;
   private readonly validTokens = new Set<string>();
   private readonly pairingTimeoutMs: number;
   private readonly maxAttempts: number;
 
-  constructor(options?: { pairingTimeoutMs?: number; maxAttempts?: number }) {
+  constructor(options?: PairingManagerOptions) {
     super();
     this.pairingTimeoutMs = options?.pairingTimeoutMs ?? 60_000; // 60 seconds
     this.maxAttempts = options?.maxAttempts ?? 3;
+    if (options?.initialTokens) {
+      for (const token of options.initialTokens) {
+        if (token && typeof token === 'string' && token.length >= 16) {
+          this.validTokens.add(token);
+        }
+      }
+    }
+  }
+
+  public registerToken(token: string): void {
+    if (token && typeof token === 'string' && token.length >= 16) {
+      this.validTokens.add(token);
+    }
+  }
+
+  public getValidTokens(): string[] {
+    return Array.from(this.validTokens);
   }
 
   public requestPairing(clientName = 'Unknown Device', autoConfirm = false): {

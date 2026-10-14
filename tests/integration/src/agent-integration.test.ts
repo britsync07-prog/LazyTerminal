@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { WebSocket } from 'ws';
 import { AgentServer } from '@lazyterminal/windows-agent';
@@ -120,7 +121,7 @@ function createClient(port: number): Promise<TestClient> {
   });
 }
 
-describe('LazyTerminal Agent Windows Integration Tests', () => {
+describe.skipIf(process.platform !== 'win32')('LazyTerminal Agent Windows Integration Tests', () => {
   let server: AgentServer;
   let serverPort: number;
 
@@ -639,4 +640,314 @@ describe('LazyTerminal Agent Windows Integration Tests', () => {
       await lanServer.stop();
     }
   }, 20000);
+
+  describe('Task 003: Session Discovery, PC Mirroring, and Multi-Client Attachment', () => {
+    it('enumerates managed sessions and external Windows console processes on session:list', async () => {
+      const client1 = await createClient(serverPort);
+      const client2 = await createClient(serverPort);
+
+      try {
+        // Create a managed session
+        client1.send({
+          type: 'terminal:create',
+          requestId: 'req-list-prep',
+        });
+        const created = await client1.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+            m.type === 'terminal:created' && m.requestId === 'req-list-prep',
+        );
+
+        // Query session list from client2
+        client2.send({
+          type: 'session:list',
+          requestId: 'req-list-query',
+        });
+
+        const listResponse = await client2.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'session:list_response' }> =>
+            m.type === 'session:list_response' && m.requestId === 'req-list-query',
+        );
+
+        expect(listResponse.sessions.length).toBeGreaterThanOrEqual(1);
+        const managed = listResponse.sessions.find((s) => s.sessionId === created.sessionId);
+        expect(managed).toBeDefined();
+        expect(managed?.status).toBe('active');
+        expect(managed?.attachedClients).toBeGreaterThanOrEqual(1);
+
+        // Discovered external processes (if any on Windows) must be unmanaged and unattachable
+        for (const ext of listResponse.externalProcesses) {
+          expect(ext.managed).toBe(false);
+          expect(ext.attachable).toBe(false);
+        }
+      } finally {
+        await client1.close();
+        await client2.close();
+      }
+    }, 20000);
+
+    it('attaches second client to existing session, streams shared input/output, and detaches without termination', async () => {
+      const client1 = await createClient(serverPort);
+      const client2 = await createClient(serverPort);
+
+      try {
+        // Client 1 (Mobile) creates session
+        client1.send({
+          type: 'terminal:create',
+          requestId: 'req-dual-mirror',
+        });
+        const created = await client1.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+            m.type === 'terminal:created' && m.requestId === 'req-dual-mirror',
+        );
+        const sessionId = created.sessionId;
+
+        // Wait for PowerShell prompt on Client 1
+        await client1.waitForOutput(sessionId, 'PS ');
+
+        // Client 2 (PC Viewer) attaches to the session
+        client2.send({
+          type: 'session:attach',
+          sessionId,
+        });
+
+        const attached = await client2.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'session:attached' }> =>
+            m.type === 'session:attached' && m.sessionId === sessionId,
+        );
+        expect(attached.sessionId).toBe(sessionId);
+        expect(attached.recentOutput).toContain('PS ');
+
+        // Client 2 (PC Viewer) writes command into shared session
+        client2.send({
+          type: 'terminal:input',
+          sessionId,
+          data: 'Write-Output "MIRROR_DUAL_OK_123"\r\n',
+        });
+
+        // Both Client 1 and Client 2 must receive the output from the same single shell
+        await client1.waitForOutput(sessionId, 'MIRROR_DUAL_OK_123');
+        await client2.waitForOutput(sessionId, 'MIRROR_DUAL_OK_123');
+
+        // Client 2 detaches (simulating Ctrl+] in viewer)
+        client2.send({
+          type: 'session:detach',
+          sessionId,
+        });
+
+        const detached = await client2.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'session:detached' }> =>
+            m.type === 'session:detached' && m.sessionId === sessionId,
+        );
+        expect(detached.sessionId).toBe(sessionId);
+
+        // Verify the session was NOT terminated by detaching
+        expect(server.sessionRegistry.getActiveSessionsCount()).toBeGreaterThanOrEqual(1);
+
+        // Client 1 can still execute commands in the session
+        client1.send({
+          type: 'terminal:input',
+          sessionId,
+          data: 'Write-Output "STILL_ALIVE_789"\r\n',
+        });
+        await client1.waitForOutput(sessionId, 'STILL_ALIVE_789');
+
+        // Explicit close terminates session and notifies all clients
+        client1.send({
+          type: 'terminal:close',
+          sessionId,
+        });
+
+        await client1.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'session:closed' }> =>
+            m.type === 'session:closed' && m.sessionId === sessionId,
+        );
+      } finally {
+        await client1.close();
+        await client2.close();
+      }
+    }, 25000);
+
+    it('rejects unauthorized session:list and session:attach in LAN mode', async () => {
+      const lanServer = new AgentServer({
+        host: '0.0.0.0',
+        port: 0,
+      });
+      const info = await lanServer.start();
+      const unauthClient = await createClient(info.port);
+
+      try {
+        unauthClient.send({
+          type: 'session:list',
+          requestId: 'unauth-list-req',
+        });
+
+        const listErr = await unauthClient.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+            m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+        );
+        expect(listErr.code).toBe(ERROR_CODES.UNAUTHORIZED);
+
+        unauthClient.send({
+          type: 'session:attach',
+          sessionId: 'some-session-id',
+        });
+
+        const attachErr = await unauthClient.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+            m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+        );
+        expect(attachErr.code).toBe(ERROR_CODES.UNAUTHORIZED);
+      } finally {
+        await unauthClient.close();
+        await lanServer.stop();
+      }
+    });
+
+    it('allows authenticated client to access sessions using desktop auth token', async () => {
+      const lanServer = new AgentServer({
+        host: '0.0.0.0',
+        port: 0,
+      });
+      const info = await lanServer.start();
+      expect(info.authToken).toBeDefined();
+      expect(typeof info.authToken).toBe('string');
+      expect(info.authToken!.length).toBe(64);
+
+      const client = await createClient(info.port);
+
+      try {
+        // Authenticate with the agent's desktop token
+        client.send({
+          type: 'auth:connect',
+          token: info.authToken!,
+        });
+
+        const authSuccess = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'auth:success' }> => m.type === 'auth:success',
+        );
+        expect(authSuccess.type).toBe('auth:success');
+
+        // Can now list sessions
+        client.send({
+          type: 'session:list',
+          requestId: 'auth-list-req',
+        });
+
+        const listRes = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'session:list_response' }> =>
+            m.type === 'session:list_response' && m.requestId === 'auth-list-req',
+        );
+        expect(listRes.type).toBe('session:list_response');
+        expect(Array.isArray(listRes.sessions)).toBe(true);
+      } finally {
+        await client.close();
+        await lanServer.stop();
+      }
+    });
+
+    it('rejects authentication with invalid token with AUTH_FAILED', async () => {
+      const lanServer = new AgentServer({
+        host: '0.0.0.0',
+        port: 0,
+      });
+      const info = await lanServer.start();
+      const client = await createClient(info.port);
+
+      try {
+        client.send({
+          type: 'auth:connect',
+          token: 'invalid_token_12345678901234567890',
+        });
+
+        const authErr = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+            m.type === 'terminal:error' && m.code === ERROR_CODES.AUTH_FAILED,
+        );
+        expect(authErr.code).toBe(ERROR_CODES.AUTH_FAILED);
+      } finally {
+        await client.close();
+        await lanServer.stop();
+      }
+    });
+
+    it('supports interactive pairing handshake and grants full session access', async () => {
+      const lanServer = new AgentServer({
+        host: '0.0.0.0',
+        port: 0,
+      });
+      const info = await lanServer.start();
+      const client = await createClient(info.port);
+
+      try {
+        // 1. Send pairing request
+        client.send({
+          type: 'auth:pair_request',
+          clientName: 'LazyTerminal PC Viewer',
+        });
+
+        const prompt = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'auth:pair_prompt' }> =>
+            m.type === 'auth:pair_prompt',
+        );
+        expect(prompt.challenge).toBeDefined();
+
+        // Retrieve active pairing code from agent's pairing manager
+        const activeReq = (lanServer as unknown as { pairingManager: { activeRequest?: { code: string } } })
+          .pairingManager.activeRequest;
+        expect(activeReq?.code).toBeDefined();
+
+        // 2. Submit pairing code
+        client.send({
+          type: 'auth:pair_verify',
+          code: activeReq!.code,
+        });
+
+        const pairSuccess = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'auth:pair_success' }> =>
+            m.type === 'auth:pair_success',
+        );
+        expect(pairSuccess.token).toBeDefined();
+        expect(pairSuccess.token.length).toBe(64);
+
+        // 3. Client can now create terminal session
+        client.send({
+          type: 'terminal:create',
+          requestId: 'paired-create-req',
+          cols: 80,
+          rows: 24,
+        });
+
+        const created = await client.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+            m.type === 'terminal:created' && m.requestId === 'paired-create-req',
+        );
+        expect(created.sessionId).toBeDefined();
+
+        // Clean up session
+        client.send({
+          type: 'terminal:close',
+          sessionId: created.sessionId,
+        });
+      } finally {
+        await client.close();
+        await lanServer.stop();
+      }
+    }, 20000);
+
+    it('creates desktop agent token file on start and deletes it on stop', async () => {
+      const lanServer = new AgentServer({
+        host: '0.0.0.0',
+        port: 0,
+      });
+      const info = await lanServer.start();
+      expect(info.tokenFilePath).toBeDefined();
+      expect(fs.existsSync(info.tokenFilePath!)).toBe(true);
+
+      const tokenInFile = fs.readFileSync(info.tokenFilePath!, 'utf-8').trim();
+      expect(tokenInFile).toBe(info.authToken);
+
+      await lanServer.stop();
+      expect(fs.existsSync(info.tokenFilePath!)).toBe(false);
+    });
+  });
 });

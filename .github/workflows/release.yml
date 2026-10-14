@@ -1,0 +1,253 @@
+name: CI & Release Pipeline
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  validate:
+    name: Validate (Build, Typecheck, Lint, Test)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Approve build dependencies
+        run: pnpm approve-builds --all
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build
+        run: pnpm build
+
+      - name: Monorepo Typecheck
+        run: pnpm typecheck
+
+      - name: Monorepo Lint
+        run: pnpm lint
+
+      - name: Monorepo Unit & Integration Tests
+        run: pnpm test
+
+  build-windows:
+    name: Build Windows Application
+    needs: validate
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Approve build dependencies
+        run: pnpm approve-builds --all
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build
+        run: pnpm build
+
+      - name: Run Windows ConPTY Tests
+        run: pnpm test
+
+      - name: Package Windows Desktop App
+        run: pnpm --filter "@lazyterminal/windows-desktop" run package
+
+      - name: Verify Windows Package & Artifacts
+        shell: powershell
+        run: |
+          $exe = "apps/windows-desktop/dist/package/LazyTerminal-win32-x64/LazyTerminal.exe"
+          $zip = "apps/windows-desktop/dist/package/LazyTerminal-Windows.zip"
+          
+          if (-not (Test-Path $exe)) {
+            Write-Error "Packaged executable not found at $exe"
+            exit 1
+          }
+          $exeSize = (Get-Item $exe).Length
+          if ($exeSize -lt 10000000) {
+            Write-Error "Packaged executable is unexpectedly small ($exeSize bytes)"
+            exit 1
+          }
+          
+          if (-not (Test-Path $zip)) {
+            Write-Error "Distribution ZIP archive not found at $zip"
+            exit 1
+          }
+          $zipSize = (Get-Item $zip).Length
+          if ($zipSize -lt 10000000) {
+            Write-Error "Distribution ZIP archive is unexpectedly small ($zipSize bytes)"
+            exit 1
+          }
+          
+          Write-Host "==========================================================" -ForegroundColor Green
+          Write-Host " Windows Build Verification Succeeded:" -ForegroundColor Green
+          Write-Host " Executable: $exe ($([math]::Round($exeSize / 1MB, 2)) MB)" -ForegroundColor White
+          Write-Host " Archive:    $zip ($([math]::Round($zipSize / 1MB, 2)) MB)" -ForegroundColor White
+          Write-Host "==========================================================" -ForegroundColor Green
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LazyTerminal-Windows
+          path: |
+            apps/windows-desktop/dist/package/LazyTerminal-Windows.zip
+            apps/windows-desktop/dist/package/LazyTerminal-win32-x64/LazyTerminal.exe
+            apps/windows-desktop/dist/package/LazyTerminal-win32-x64/install-shortcuts.ps1
+            apps/windows-desktop/dist/package/LazyTerminal-win32-x64/uninstall.ps1
+            apps/windows-desktop/dist/package/LazyTerminal-win32-x64/Start-LazyTerminal.cmd
+          retention-days: 30
+
+  build-android:
+    name: Build Android APK
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'pnpm'
+
+      - name: Setup Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Approve build dependencies
+        run: pnpm approve-builds --all
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Monorepo Build
+        run: pnpm build
+
+      - name: Prebuild Native Android Project
+        run: |
+          cd apps/android
+          npx expo prebuild --platform android --no-install
+
+      - name: Build Standalone APK with Gradle
+        run: |
+          cd apps/android/android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Locate, Export, and Verify APK
+        run: |
+          APK_FILE=$(find apps/android/android/app/build/outputs/apk/debug -name "*.apk" -type f | head -n 1)
+          if [ -z "$APK_FILE" ] || [ ! -s "$APK_FILE" ]; then
+            echo "::error::Output APK not found or empty after Gradle build!"
+            exit 1
+          fi
+          
+          mkdir -p apps/android/dist
+          cp "$APK_FILE" apps/android/dist/LazyTerminal.apk
+          
+          APK_SIZE=$(stat -c%s apps/android/dist/LazyTerminal.apk)
+          echo "=========================================================="
+          echo " Android APK Build Verification Succeeded:"
+          echo " Target APK: apps/android/dist/LazyTerminal.apk ($(($APK_SIZE / 1024 / 1024)) MB)"
+          echo " Source:     $APK_FILE"
+          echo "=========================================================="
+
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LazyTerminal-Android-APK
+          path: apps/android/dist/LazyTerminal.apk
+          retention-days: 30
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-windows, build-android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: LazyTerminal-Windows
+          path: dist-release/windows
+
+      - name: Download Android Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: LazyTerminal-Android-APK
+          path: dist-release/android
+
+      - name: Verify Release Assets
+        run: |
+          ls -la dist-release/windows
+          ls -la dist-release/android
+          if [ ! -f dist-release/windows/LazyTerminal-Windows.zip ]; then
+            echo "::error::Missing LazyTerminal-Windows.zip for release!"
+            exit 1
+          fi
+          if [ ! -f dist-release/android/LazyTerminal.apk ]; then
+            echo "::error::Missing LazyTerminal.apk for release!"
+            exit 1
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-release/windows/LazyTerminal-Windows.zip
+            dist-release/android/LazyTerminal.apk
+          generate_release_notes: true
+          draft: false
+          prerelease: false

@@ -79,7 +79,7 @@ describe('SessionRegistry', () => {
     expect(registry.getActiveSessionsCount()).toBe(0);
   });
 
-  it('receives terminal output from real PowerShell session on Windows', async () => {
+  it.skipIf(process.platform !== 'win32')('receives terminal output from real PowerShell session on Windows', async () => {
     registry = new SessionRegistry();
     const session = await registry.createSession();
 

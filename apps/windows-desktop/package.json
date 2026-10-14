@@ -1,0 +1,25 @@
+{
+  "name": "@lazyterminal/windows-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LazyTerminal Windows Desktop GUI - Terminal Mirror & Session Manager",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -b && node scripts/copy-assets.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "dev": "electron dist/main.js",
+    "package": "node scripts/package-win.js"
+  },
+  "dependencies": {
+    "@lazyterminal/protocol": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
+    "electron": "32.3.3",
+    "electron-packager": "^17.1.2",
+    "typescript": "^5.8.2"
+  }
+}

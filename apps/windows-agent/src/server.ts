@@ -1,4 +1,8 @@
 import http from 'node:http';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import crypto from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   parseClientMessage,
@@ -10,6 +14,7 @@ import {
 } from '@lazyterminal/protocol';
 import { SessionRegistry, SessionRegistryError } from './session-registry.js';
 import { PairingManager } from './pairing-manager.js';
+import { discoverExternalProcesses } from './process-discovery.js';
 import type { AgentConfig, AgentServerInfo, SecurityMode } from './types.js';
 
 export class AgentServer {
@@ -24,6 +29,9 @@ export class AgentServer {
   private readonly connectedClients = new Set<WebSocket>();
   private readonly authenticatedClients = new WeakSet<WebSocket>();
   private readonly clientReqMap = new WeakMap<WebSocket, http.IncomingMessage>();
+  private readonly sessionAttachedClients = new Map<string, Set<WebSocket>>();
+  public readonly primaryAuthToken?: string;
+  public tokenFilePath?: string;
 
   constructor(config?: Partial<AgentConfig>) {
     const host = config?.host ?? '127.0.0.1';
@@ -44,6 +52,9 @@ export class AgentServer {
       shellArgs: config?.shellArgs,
       requireAuth,
       pairingTimeoutMs: config?.pairingTimeoutMs,
+      authToken: config?.authToken,
+      initialTokens: config?.initialTokens,
+      saveTokenToFile: config?.saveTokenToFile,
     };
 
     this.sessionRegistry = new SessionRegistry({
@@ -52,9 +63,45 @@ export class AgentServer {
       shellArgs: this.config.shellArgs,
     });
 
+    const initialTokens: string[] = [];
+    if (this.config.authToken) {
+      initialTokens.push(this.config.authToken);
+    }
+    if (this.config.initialTokens) {
+      initialTokens.push(...this.config.initialTokens);
+    }
+    const envToken = process.env.LAZYTERMINAL_TOKEN;
+    if (envToken && envToken.length >= 16 && !initialTokens.includes(envToken)) {
+      initialTokens.push(envToken);
+    }
+
     this.pairingManager = new PairingManager({
       pairingTimeoutMs: this.config.pairingTimeoutMs,
+      initialTokens,
     });
+
+    // If authentication is required and no token was supplied, generate a secure 256-bit token
+    let primaryToken = initialTokens[0];
+    if (requireAuth && !primaryToken) {
+      primaryToken = crypto.randomBytes(32).toString('hex');
+      this.pairingManager.registerToken(primaryToken);
+    }
+    this.primaryAuthToken = primaryToken;
+
+    // Securely write desktop token to local user profile for seamless local viewer pairing
+    if (requireAuth && this.primaryAuthToken && config?.saveTokenToFile !== false) {
+      try {
+        const tokenDir = path.join(os.homedir(), '.lazyterminal');
+        if (!fs.existsSync(tokenDir)) {
+          fs.mkdirSync(tokenDir, { recursive: true, mode: 0o700 });
+        }
+        const filePath = path.join(tokenDir, 'agent-token');
+        fs.writeFileSync(filePath, this.primaryAuthToken, { mode: 0o600 });
+        this.tokenFilePath = filePath;
+      } catch (err) {
+        console.warn('[AgentServer] Unable to write agent token file:', (err as Error).message);
+      }
+    }
 
     this.setupRegistryEvents();
   }
@@ -67,6 +114,8 @@ export class AgentServer {
       requireAuth: this.config.requireAuth!,
       isLoopbackOnly: this.isLoopbackOnly,
       maxSessions: this.config.maxSessions,
+      authToken: this.primaryAuthToken,
+      tokenFilePath: this.tokenFilePath,
     };
   }
 
@@ -82,8 +131,14 @@ export class AgentServer {
 
     // When a session exits
     this.sessionRegistry.on('exit', (sessionId: string, exitCode: number) => {
+      this.sessionAttachedClients.delete(sessionId);
       this.broadcast({
         type: 'terminal:exit',
+        sessionId,
+        exitCode,
+      });
+      this.broadcast({
+        type: 'session:closed',
         sessionId,
         exitCode,
       });
@@ -164,6 +219,9 @@ export class AgentServer {
         ws.on('close', () => {
           this.connectedClients.delete(ws);
           this.clientReqMap.delete(ws);
+          for (const clients of this.sessionAttachedClients.values()) {
+            clients.delete(ws);
+          }
         });
       });
 
@@ -296,12 +354,106 @@ export class AgentServer {
           cwd: msg.cwd,
         });
 
+        let clients = this.sessionAttachedClients.get(session.id);
+        if (!clients) {
+          clients = new Set();
+          this.sessionAttachedClients.set(session.id, clients);
+        }
+        clients.add(ws);
+
         this.sendToClient(ws, {
           type: 'terminal:created',
           requestId: msg.requestId,
           sessionId: session.id,
           cols: session.cols,
           rows: session.rows,
+        });
+
+        // Broadcast session:created to all authenticated clients
+        this.broadcast({
+          type: 'session:created',
+          session: {
+            sessionId: session.id,
+            shell: session.shell ?? this.config.shellPath ?? 'powershell.exe',
+            cols: session.cols,
+            rows: session.rows,
+            createdAt: session.createdAt.getTime(),
+            attachedClients: clients.size,
+            status: 'active',
+            title: session.title ?? 'PowerShell',
+          },
+        });
+        break;
+      }
+
+      case 'session:list': {
+        const sessions = this.sessionRegistry.getAllSessions().map((s) => ({
+          sessionId: s.id,
+          shell: s.shell ?? this.config.shellPath ?? 'powershell.exe',
+          cols: s.cols,
+          rows: s.rows,
+          createdAt: s.createdAt.getTime(),
+          attachedClients: this.sessionAttachedClients.get(s.id)?.size ?? 0,
+          status: 'active' as const,
+          title: s.title ?? 'PowerShell',
+        }));
+
+        const externalProcesses = await discoverExternalProcesses(
+          this.sessionRegistry.getManagedPids(),
+        );
+
+        this.sendToClient(ws, {
+          type: 'session:list_response',
+          requestId: msg.requestId,
+          sessions,
+          externalProcesses,
+        });
+        break;
+      }
+
+      case 'session:attach': {
+        const session = this.sessionRegistry.getSession(msg.sessionId);
+        if (!session) {
+          this.sendToClient(ws, {
+            type: 'terminal:error',
+            sessionId: msg.sessionId,
+            code: ERROR_CODES.SESSION_NOT_FOUND,
+            message: `Session with ID "${msg.sessionId}" not found`,
+          });
+          break;
+        }
+
+        let clients = this.sessionAttachedClients.get(session.id);
+        if (!clients) {
+          clients = new Set();
+          this.sessionAttachedClients.set(session.id, clients);
+        }
+        clients.add(ws);
+
+        if (msg.cols && msg.rows) {
+          this.sessionRegistry.resize(session.id, msg.cols, msg.rows);
+        }
+
+        const recentOutput = this.sessionRegistry.getRecentOutput(session.id);
+
+        this.sendToClient(ws, {
+          type: 'session:attached',
+          sessionId: session.id,
+          cols: session.cols,
+          rows: session.rows,
+          recentOutput,
+        });
+        break;
+      }
+
+      case 'session:detach': {
+        const clients = this.sessionAttachedClients.get(msg.sessionId);
+        if (clients) {
+          clients.delete(ws);
+        }
+        this.sendToClient(ws, {
+          type: 'session:detached',
+          sessionId: msg.sessionId,
         });
         break;
       }
@@ -323,6 +475,11 @@ export class AgentServer {
 
       case 'terminal:close': {
         this.sessionRegistry.closeSession(msg.sessionId);
+        this.sessionAttachedClients.delete(msg.sessionId);
+        this.broadcast({
+          type: 'session:closed',
+          sessionId: msg.sessionId,
+        });
         break;
       }
     }
@@ -370,6 +527,17 @@ export class AgentServer {
         resolve();
       }
     });
+
+    if (this.tokenFilePath) {
+      try {
+        if (fs.existsSync(this.tokenFilePath)) {
+          fs.unlinkSync(this.tokenFilePath);
+        }
+      } catch {
+        // ignore
+      }
+      this.tokenFilePath = undefined;
+    }
 
     this.wss = null;
     this.httpServer = null;

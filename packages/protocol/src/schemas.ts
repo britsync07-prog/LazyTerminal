@@ -64,12 +64,32 @@ export const AuthConnectMessageSchema = z.object({
   token: z.string().min(16).max(256),
 });
 
+export const SessionListMessageSchema = z.object({
+  type: z.literal('session:list'),
+  requestId: z.string().optional(),
+});
+
+export const SessionAttachMessageSchema = z.object({
+  type: z.literal('session:attach'),
+  sessionId: idSchema,
+  cols: z.number().int().min(MIN_COLS).max(MAX_COLS).optional(),
+  rows: z.number().int().min(MIN_ROWS).max(MAX_ROWS).optional(),
+});
+
+export const SessionDetachMessageSchema = z.object({
+  type: z.literal('session:detach'),
+  sessionId: idSchema,
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   TerminalCreateMessageSchema,
   TerminalInputMessageSchema,
   TerminalResizeMessageSchema,
   TerminalInterruptMessageSchema,
   TerminalCloseMessageSchema,
+  SessionListMessageSchema,
+  SessionAttachMessageSchema,
+  SessionDetachMessageSchema,
   PingMessageSchema,
   AuthPairRequestMessageSchema,
   AuthPairVerifyMessageSchema,
@@ -126,11 +146,67 @@ export const AuthSuccessMessageSchema = z.object({
   type: z.literal('auth:success'),
 });
 
+export const SessionSummarySchema = z.object({
+  sessionId: idSchema,
+  shell: z.string(),
+  cols: z.number().int().min(MIN_COLS).max(MAX_COLS),
+  rows: z.number().int().min(MIN_ROWS).max(MAX_ROWS),
+  createdAt: z.number(),
+  attachedClients: z.number().int().nonnegative(),
+  status: z.enum(['active', 'exited']),
+  title: z.string().optional(),
+});
+
+export const ExternalProcessSummarySchema = z.object({
+  pid: z.number().int(),
+  name: z.string(),
+  managed: z.literal(false),
+  attachable: z.literal(false),
+  description: z.string().optional(),
+  windowTitle: z.string().optional(),
+});
+
+export const SessionListResponseMessageSchema = z.object({
+  type: z.literal('session:list_response'),
+  requestId: z.string().optional(),
+  sessions: z.array(SessionSummarySchema),
+  externalProcesses: z.array(ExternalProcessSummarySchema),
+});
+
+export const SessionAttachedMessageSchema = z.object({
+  type: z.literal('session:attached'),
+  sessionId: idSchema,
+  cols: z.number().int().min(MIN_COLS).max(MAX_COLS),
+  rows: z.number().int().min(MIN_ROWS).max(MAX_ROWS),
+  recentOutput: z.string().optional(),
+});
+
+export const SessionDetachedMessageSchema = z.object({
+  type: z.literal('session:detached'),
+  sessionId: idSchema,
+});
+
+export const SessionCreatedMessageSchema = z.object({
+  type: z.literal('session:created'),
+  session: SessionSummarySchema,
+});
+
+export const SessionClosedMessageSchema = z.object({
+  type: z.literal('session:closed'),
+  sessionId: idSchema,
+  exitCode: z.number().int().optional(),
+});
+
 export const ServerMessageSchema = z.discriminatedUnion('type', [
   TerminalCreatedMessageSchema,
   TerminalOutputMessageSchema,
   TerminalExitMessageSchema,
   TerminalErrorMessageSchema,
+  SessionListResponseMessageSchema,
+  SessionAttachedMessageSchema,
+  SessionDetachedMessageSchema,
+  SessionCreatedMessageSchema,
+  SessionClosedMessageSchema,
   PongMessageSchema,
   AuthPairPromptMessageSchema,
   AuthPairSuccessMessageSchema,

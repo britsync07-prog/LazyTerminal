@@ -61,6 +61,9 @@ export class SessionRegistry extends EventEmitter {
       rows: session.rows,
       cwd: session.cwd,
       createdAt: session.createdAt,
+      pid: session.pty.pid,
+      shell: session.shell,
+      title: session.title,
     };
   }
 
@@ -71,7 +74,21 @@ export class SessionRegistry extends EventEmitter {
       rows: s.rows,
       cwd: s.cwd,
       createdAt: s.createdAt,
+      pid: s.pty.pid,
+      shell: s.shell,
+      title: s.title,
     }));
+  }
+
+  public getManagedPids(): number[] {
+    return Array.from(this.sessions.values())
+      .map((s) => s.pty.pid)
+      .filter((pid): pid is number => typeof pid === 'number');
+  }
+
+  public getRecentOutput(sessionId: string): string | undefined {
+    const session = this.sessions.get(sessionId);
+    return session?.outputBuffer;
   }
 
   public async createSession(options?: CreateSessionOptions): Promise<SessionInfo> {
@@ -111,26 +128,39 @@ export class SessionRegistry extends EventEmitter {
       cwd,
       createdAt: new Date(),
       pty: ptyProcess,
+      pid: ptyProcess.pid,
+      shell: this.defaultShell,
+      title: 'PowerShell',
+      outputBuffer: '',
     };
 
     this.sessions.set(sessionId, session);
 
     ptyProcess.onData((data: string) => {
+      session.outputBuffer = (session.outputBuffer + data).slice(-65536);
       this.emit('data', sessionId, data);
     });
 
     ptyProcess.onExit(({ exitCode }: { exitCode: number }) => {
       this.sessions.delete(sessionId);
       this.emit('exit', sessionId, exitCode ?? 0);
+      this.emit('closed', sessionId, exitCode ?? 0);
     });
 
-    return {
+    const sessionInfo: SessionInfo = {
       id: session.id,
       cols: session.cols,
       rows: session.rows,
       cwd: session.cwd,
       createdAt: session.createdAt,
+      pid: session.pid,
+      shell: session.shell,
+      title: session.title,
     };
+
+    this.emit('created', sessionInfo);
+
+    return sessionInfo;
   }
 
   public write(sessionId: string, data: string): void {

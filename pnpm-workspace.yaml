@@ -4,9 +4,11 @@ packages:
   - 'tests/*'
 
 allowBuilds:
+  electron: true
   esbuild: true
   node-pty: true
 
 onlyBuiltDependencies:
+  - electron
   - esbuild
   - node-pty

@@ -11,6 +11,12 @@
     "test:integration": "pnpm --filter \"@lazyterminal/integration-tests\" run test",
     "lint": "pnpm --recursive run lint",
     "dev:agent": "pnpm --filter \"@lazyterminal/windows-agent\" run dev",
+    "dev:viewer": "pnpm --filter \"@lazyterminal/windows-agent\" run viewer",
+    "dev:desktop": "pnpm --filter \"@lazyterminal/windows-desktop\" run dev",
+    "package:desktop": "pnpm --filter \"@lazyterminal/windows-desktop\" run package",
+    "package:windows": "pnpm --filter \"@lazyterminal/windows-desktop\" run package",
+    "build:apk": "pnpm --filter \"@lazyterminal/android\" run build:apk",
+    "viewer": "pnpm --filter \"@lazyterminal/windows-agent\" run viewer",
     "dev:android": "pnpm --filter \"@lazyterminal/android\" run dev"
   },
   "devDependencies": {

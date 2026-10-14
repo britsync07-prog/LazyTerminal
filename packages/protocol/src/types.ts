@@ -19,6 +19,16 @@ import {
   AuthPairPromptMessageSchema,
   AuthPairSuccessMessageSchema,
   AuthSuccessMessageSchema,
+  SessionListMessageSchema,
+  SessionAttachMessageSchema,
+  SessionDetachMessageSchema,
+  SessionSummarySchema,
+  ExternalProcessSummarySchema,
+  SessionListResponseMessageSchema,
+  SessionAttachedMessageSchema,
+  SessionDetachedMessageSchema,
+  SessionCreatedMessageSchema,
+  SessionClosedMessageSchema,
 } from './schemas.js';
 
 export type ClientMessage = z.input<typeof ClientMessageSchema>;
@@ -38,6 +48,18 @@ export type PingMessage = z.infer<typeof PingMessageSchema>;
 export type AuthPairRequestMessage = z.infer<typeof AuthPairRequestMessageSchema>;
 export type AuthPairVerifyMessage = z.infer<typeof AuthPairVerifyMessageSchema>;
 export type AuthConnectMessage = z.infer<typeof AuthConnectMessageSchema>;
+
+export type SessionListMessage = z.infer<typeof SessionListMessageSchema>;
+export type SessionAttachMessage = z.infer<typeof SessionAttachMessageSchema>;
+export type SessionDetachMessage = z.infer<typeof SessionDetachMessageSchema>;
+
+export type SessionSummary = z.infer<typeof SessionSummarySchema>;
+export type ExternalProcessSummary = z.infer<typeof ExternalProcessSummarySchema>;
+export type SessionListResponseMessage = z.infer<typeof SessionListResponseMessageSchema>;
+export type SessionAttachedMessage = z.infer<typeof SessionAttachedMessageSchema>;
+export type SessionDetachedMessage = z.infer<typeof SessionDetachedMessageSchema>;
+export type SessionCreatedMessage = z.infer<typeof SessionCreatedMessageSchema>;
+export type SessionClosedMessage = z.infer<typeof SessionClosedMessageSchema>;
 
 export type TerminalCreatedMessage = z.infer<typeof TerminalCreatedMessageSchema>;
 export type TerminalOutputMessage = z.infer<typeof TerminalOutputMessageSchema>;

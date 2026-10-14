@@ -8,16 +8,31 @@ import {
   Platform,
 } from 'react-native';
 
-interface ControlToolbarProps {
+export interface ControlToolbarProps {
   onSendKey: (data: string) => void;
   onInterrupt: () => void;
+  onScrollTop?: () => void;
+  onScrollBottom?: () => void;
+  onDecreaseFont?: () => void;
+  onIncreaseFont?: () => void;
+  fontSize?: number;
 }
 
 export const ControlToolbar: React.FC<ControlToolbarProps> = ({
   onSendKey,
   onInterrupt,
+  onScrollTop,
+  onScrollBottom,
+  onDecreaseFont,
+  onIncreaseFont,
+  fontSize = 13,
 }) => {
-  const buttons = [
+  const buttons: Array<{
+    label: string;
+    action: () => void;
+    isSpecial?: boolean;
+    isAction?: boolean;
+  }> = [
     { label: 'Ctrl+C', action: onInterrupt, isSpecial: true },
     { label: 'Tab', action: () => onSendKey('\t') },
     { label: 'Esc', action: () => onSendKey('\x1b') },
@@ -25,6 +40,12 @@ export const ControlToolbar: React.FC<ControlToolbarProps> = ({
     { label: '▼', action: () => onSendKey('\x1b[B') },
     { label: '◄', action: () => onSendKey('\x1b[D') },
     { label: '►', action: () => onSendKey('\x1b[C') },
+    ...(onScrollBottom ? [{ label: '▼ End', action: onScrollBottom, isAction: true }] : []),
+    ...(onScrollTop ? [{ label: '▲ Top', action: onScrollTop, isAction: true }] : []),
+    ...(onDecreaseFont ? [{ label: 'A-', action: onDecreaseFont, isAction: true }] : []),
+    ...(onIncreaseFont ? [{ label: `A+ (${fontSize}pt)`, action: onIncreaseFont, isAction: true }] : []),
+    { label: 'PgUp', action: () => onSendKey('\x1b[5~') },
+    { label: 'PgDn', action: () => onSendKey('\x1b[6~') },
     { label: 'Enter', action: () => onSendKey('\r\n') },
     { label: 'Clear', action: () => onSendKey('Clear-Host\r\n') },
   ];
@@ -39,11 +60,21 @@ export const ControlToolbar: React.FC<ControlToolbarProps> = ({
         {buttons.map((btn, idx) => (
           <TouchableOpacity
             key={idx}
-            style={[styles.button, btn.isSpecial && styles.specialButton]}
+            style={[
+              styles.button,
+              btn.isSpecial && styles.specialButton,
+              btn.isAction && styles.actionButton,
+            ]}
             onPress={btn.action}
             activeOpacity={0.7}
           >
-            <Text style={[styles.buttonText, btn.isSpecial && styles.specialButtonText]}>
+            <Text
+              style={[
+                styles.buttonText,
+                btn.isSpecial && styles.specialButtonText,
+                btn.isAction && styles.actionButtonText,
+              ]}
+            >
               {btn.label}
             </Text>
           </TouchableOpacity>
@@ -55,7 +86,7 @@ export const ControlToolbar: React.FC<ControlToolbarProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    height: 42,
+    height: 44,
     backgroundColor: '#161b22',
     borderTopWidth: 1,
     borderTopColor: '#30363d',
@@ -67,7 +98,7 @@ const styles = StyleSheet.create({
   },
   button: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     backgroundColor: '#21262d',
     borderRadius: 6,
     marginRight: 6,
@@ -80,6 +111,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(248, 81, 73, 0.15)',
     borderColor: '#f85149',
   },
+  actionButton: {
+    backgroundColor: 'rgba(88, 166, 255, 0.12)',
+    borderColor: '#388bfd',
+  },
   buttonText: {
     color: '#c9d1d9',
     fontSize: 12,
@@ -88,6 +123,10 @@ const styles = StyleSheet.create({
   },
   specialButtonText: {
     color: '#ff7b72',
+    fontWeight: 'bold',
+  },
+  actionButtonText: {
+    color: '#58a6ff',
     fontWeight: 'bold',
   },
 });

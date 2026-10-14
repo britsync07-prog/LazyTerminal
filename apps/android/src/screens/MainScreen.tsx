@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  SafeAreaView,
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   StatusBar,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { TerminalClient } from '../services/terminal-client';
 import { ConnectionScreen } from '../components/ConnectionScreen';
 import { TerminalTabs } from '../components/TerminalTabs';
-import { TerminalView } from '../components/TerminalView';
+import { TerminalView, TerminalViewHandle } from '../components/TerminalView';
 import { ControlToolbar } from '../components/ControlToolbar';
 import type { ConnectionState, TerminalTab, PairingPrompt } from '../types';
 
@@ -22,6 +23,8 @@ export const MainScreen: React.FC = () => {
   }
   const client = clientRef.current;
 
+  const terminalRefs = useRef<Record<string, TerminalViewHandle | null>>({});
+
   const [state, setState] = useState<ConnectionState>('disconnected');
   const [error, setError] = useState<string | undefined>();
   const [pairingPrompt, setPairingPrompt] = useState<PairingPrompt | null>(null);
@@ -29,6 +32,10 @@ export const MainScreen: React.FC = () => {
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [lastOutputMap, setLastOutputMap] = useState<Record<string, string>>({});
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [fontSize, setFontSize] = useState<number>(13);
+  const [scrolledUpMap, setScrolledUpMap] = useState<
+    Record<string, { isScrolledUp: boolean; linesFromBottom: number }>
+  >({});
 
   useEffect(() => {
     const unsubState = client.onStateChange((newState, newError) => {
@@ -54,10 +61,17 @@ export const MainScreen: React.FC = () => {
     };
     const unsubCreated = client.onSessionCreated(unsubSessionCreated);
 
-    const unsubClosed = client.onSessionClosed((sessionId) => {
+    const unsubClosed = (sessionId: string) => {
       setTabs(client.getTabs());
       setActiveTabId(client.getActiveTabId());
-    });
+      setScrolledUpMap((prev) => {
+        const next = { ...prev };
+        delete next[sessionId];
+        return next;
+      });
+      delete terminalRefs.current[sessionId];
+    };
+    const unsubSessionClosed = client.onSessionClosed(unsubClosed);
 
     const unsubOutput = client.onOutput((sessionId, data) => {
       setLastOutputMap((prev) => ({
@@ -70,7 +84,7 @@ export const MainScreen: React.FC = () => {
       unsubState();
       unsubPair();
       unsubCreated();
-      unsubClosed();
+      unsubSessionClosed();
       unsubOutput();
       client.disconnect();
     };
@@ -103,6 +117,10 @@ export const MainScreen: React.FC = () => {
   const handleSelectTab = (sessionId: string) => {
     client.setActiveTabId(sessionId);
     setActiveTabId(sessionId);
+    // Fit terminal on tab switch to ensure layout matches current viewport
+    setTimeout(() => {
+      terminalRefs.current[sessionId]?.fit();
+    }, 50);
   };
 
   const handleCloseTab = (sessionId: string) => {
@@ -132,7 +150,37 @@ export const MainScreen: React.FC = () => {
     setTabs([]);
     setActiveTabId(null);
     setLastOutputMap({});
+    setScrolledUpMap({});
   };
+
+  const handleScrollStatusChange = (sessionId: string, isScrolledUp: boolean, linesFromBottom: number) => {
+    setScrolledUpMap((prev) => ({
+      ...prev,
+      [sessionId]: { isScrolledUp, linesFromBottom },
+    }));
+  };
+
+  const handleScrollToBottom = () => {
+    if (activeTabId && terminalRefs.current[activeTabId]) {
+      terminalRefs.current[activeTabId]?.scrollToBottom();
+    }
+  };
+
+  const handleScrollToTop = () => {
+    if (activeTabId && terminalRefs.current[activeTabId]) {
+      terminalRefs.current[activeTabId]?.scrollToTop();
+    }
+  };
+
+  const handleIncreaseFont = () => {
+    setFontSize((prev) => Math.min(22, prev + 1));
+  };
+
+  const handleDecreaseFont = () => {
+    setFontSize((prev) => Math.max(9, prev - 1));
+  };
+
+  const activeScrollStatus = activeTabId ? scrolledUpMap[activeTabId] : undefined;
 
   // If not connected or pairing required, show connection screen
   if (state !== 'connected' || tabs.length === 0) {
@@ -196,19 +244,52 @@ export const MainScreen: React.FC = () => {
         onDisconnect={handleDisconnect}
       />
 
-      {activeTabId && (
-        <TerminalView
-          key={activeTabId}
-          sessionId={activeTabId}
-          onInput={handleSendInput}
-          onResize={handleResize}
-          lastOutput={lastOutputMap[activeTabId]}
-        />
-      )}
+      <View style={styles.terminalsContainer}>
+        {tabs.map((tab) => (
+          <View
+            key={tab.id}
+            style={[
+              styles.terminalWrapper,
+              tab.id === activeTabId ? styles.activeTerminal : styles.hiddenTerminal,
+            ]}
+          >
+            <TerminalView
+              ref={(r) => {
+                terminalRefs.current[tab.id] = r;
+              }}
+              sessionId={tab.id}
+              fontSize={fontSize}
+              onInput={handleSendInput}
+              onResize={handleResize}
+              lastOutput={lastOutputMap[tab.id]}
+              initialOutput={client.getSessionHistory(tab.id)}
+              onScrollStatusChange={handleScrollStatusChange}
+            />
+          </View>
+        ))}
+
+        {/* Floating Return to Bottom Button when browsing scrollback history */}
+        {activeScrollStatus?.isScrolledUp && (
+          <TouchableOpacity
+            style={styles.floatingBottomButton}
+            onPress={handleScrollToBottom}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.floatingBottomText}>
+              ▼ Return to live output ({activeScrollStatus.linesFromBottom} lines up)
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
       <ControlToolbar
+        fontSize={fontSize}
         onSendKey={handleSendInput}
         onInterrupt={handleInterrupt}
+        onScrollTop={handleScrollToTop}
+        onScrollBottom={handleScrollToBottom}
+        onIncreaseFont={handleIncreaseFont}
+        onDecreaseFont={handleDecreaseFont}
       />
     </SafeAreaView>
   );
@@ -218,6 +299,53 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0d1117',
+  },
+  terminalsContainer: {
+    flex: 1,
+    position: 'relative',
+    backgroundColor: '#0d1117',
+  },
+  terminalWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  activeTerminal: {
+    opacity: 1,
+    zIndex: 1,
+    pointerEvents: 'auto',
+  },
+  hiddenTerminal: {
+    opacity: 0,
+    zIndex: 0,
+    pointerEvents: 'none',
+  },
+  floatingBottomButton: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    backgroundColor: '#1f6feb',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 10,
+    borderWidth: 1,
+    borderColor: '#58a6ff',
+  },
+  floatingBottomText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
   emptyContainer: {
     flex: 1,

@@ -10,6 +10,9 @@ export interface AgentConfig {
   shellArgs?: string[];
   requireAuth?: boolean;
   pairingTimeoutMs?: number;
+  authToken?: string;
+  initialTokens?: string[];
+  saveTokenToFile?: boolean;
 }
 
 export interface AgentServerInfo {
@@ -19,6 +22,8 @@ export interface AgentServerInfo {
   requireAuth: boolean;
   isLoopbackOnly: boolean;
   maxSessions: number;
+  authToken?: string;
+  tokenFilePath?: string;
 }
 
 export interface SessionInfo {
@@ -27,10 +32,14 @@ export interface SessionInfo {
   rows: number;
   cwd: string;
   createdAt: Date;
+  pid?: number;
+  shell?: string;
+  title?: string;
 }
 
 export interface InternalSession extends SessionInfo {
   pty: IPty;
+  outputBuffer: string;
 }
 
 export interface CreateSessionOptions {

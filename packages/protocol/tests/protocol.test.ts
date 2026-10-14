@@ -174,6 +174,31 @@ describe('Protocol Validation', () => {
       });
       expect(parseClientMessage(authConnect).success).toBe(true);
     });
+
+    it('parses valid session:list, session:attach, and session:detach messages', () => {
+      const listMsg = JSON.stringify({
+        type: 'session:list',
+        requestId: 'req-list-1',
+      });
+      const listParsed = parseClientMessage(listMsg);
+      expect(listParsed.success).toBe(true);
+
+      const attachMsg = JSON.stringify({
+        type: 'session:attach',
+        sessionId: 'sess-abc',
+        cols: 100,
+        rows: 30,
+      });
+      const attachParsed = parseClientMessage(attachMsg);
+      expect(attachParsed.success).toBe(true);
+
+      const detachMsg = JSON.stringify({
+        type: 'session:detach',
+        sessionId: 'sess-abc',
+      });
+      const detachParsed = parseClientMessage(detachMsg);
+      expect(detachParsed.success).toBe(true);
+    });
   });
 
   describe('parseServerMessage and serializeMessage', () => {
@@ -195,6 +220,76 @@ describe('Protocol Validation', () => {
         type: 'auth:success',
       };
       expect(parseServerMessage(serializeMessage(authOk)).success).toBe(true);
+    });
+
+    it('serializes and parses session messages', () => {
+      const listResponse: ServerMessage = {
+        type: 'session:list_response',
+        requestId: 'req-1',
+        sessions: [
+          {
+            sessionId: 'sess-1',
+            shell: 'powershell.exe',
+            cols: 80,
+            rows: 24,
+            createdAt: Date.now(),
+            attachedClients: 2,
+            status: 'active',
+            title: 'PowerShell',
+          },
+        ],
+        externalProcesses: [
+          {
+            pid: 1234,
+            name: 'powershell.exe',
+            managed: false,
+            attachable: false,
+            description: 'External Windows console process',
+          },
+        ],
+      };
+      const serialized = serializeMessage(listResponse);
+      const parsed = parseServerMessage(serialized);
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data).toEqual(listResponse);
+      }
+
+      const attached: ServerMessage = {
+        type: 'session:attached',
+        sessionId: 'sess-1',
+        cols: 80,
+        rows: 24,
+        recentOutput: 'PS C:\\> ',
+      };
+      expect(parseServerMessage(serializeMessage(attached)).success).toBe(true);
+
+      const detached: ServerMessage = {
+        type: 'session:detached',
+        sessionId: 'sess-1',
+      };
+      expect(parseServerMessage(serializeMessage(detached)).success).toBe(true);
+
+      const created: ServerMessage = {
+        type: 'session:created',
+        session: {
+          sessionId: 'sess-2',
+          shell: 'powershell.exe',
+          cols: 80,
+          rows: 24,
+          createdAt: Date.now(),
+          attachedClients: 0,
+          status: 'active',
+        },
+      };
+      expect(parseServerMessage(serializeMessage(created)).success).toBe(true);
+
+      const closed: ServerMessage = {
+        type: 'session:closed',
+        sessionId: 'sess-2',
+        exitCode: 0,
+      };
+      expect(parseServerMessage(serializeMessage(closed)).success).toBe(true);
     });
 
     it('serializes and parses terminal:output message', () => {
