@@ -12,16 +12,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@lazyterminal/protocol": "workspace:*",
     "@babel/runtime": "^7.26.0",
-    "expo": "~52.0.0",
-    "react": "18.3.1",
-    "react-native": "0.76.9",
-    "react-native-webview": "13.12.5"
+    "@lazyterminal/protocol": "workspace:*",
+    "expo": "~57.0.28",
+    "react": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
-    "@types/react": "~18.3.12",
-    "typescript": "^5.8.2",
+    "@types/react": "~19.2.3",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.7"
   }
 }
