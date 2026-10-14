@@ -1,0 +1,22 @@
+{
+  "name": "@lazyterminal/integration-tests",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Integration test suite for LazyTerminal Windows PTY and WebSocket protocol",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lazyterminal/protocol": "workspace:*",
+    "@lazyterminal/windows-agent": "workspace:*",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.7"
+  }
+}

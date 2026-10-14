@@ -1,0 +1,40 @@
+# Node and dependencies
+node_modules/
+.pnpm-store/
+dist/
+build/
+*.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.cert
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# IDE and Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Expo & React Native
+.expo/
+web-build/
+android/
+ios/
+
+# Test coverage
+coverage/

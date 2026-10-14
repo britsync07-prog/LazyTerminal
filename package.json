@@ -1,0 +1,23 @@
+{
+  "name": "lazyterminal-root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LazyTerminal Monorepo - Remote PowerShell Terminal for Android and Windows",
+  "scripts": {
+    "build": "pnpm --filter \"@lazyterminal/*\" run build",
+    "typecheck": "pnpm --recursive run typecheck",
+    "test": "pnpm --recursive run test",
+    "test:unit": "pnpm --filter \"@lazyterminal/protocol\" run test",
+    "test:integration": "pnpm --filter \"@lazyterminal/integration-tests\" run test",
+    "lint": "pnpm --recursive run lint",
+    "dev:agent": "pnpm --filter \"@lazyterminal/windows-agent\" run dev",
+    "dev:android": "pnpm --filter \"@lazyterminal/android\" run dev"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}
