@@ -9,7 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import type { ConnectionState, PairingPrompt } from '../types.js';
+import type { ConnectionState, PairingPrompt } from '../types';
 
 interface ConnectionScreenProps {
   state: ConnectionState;

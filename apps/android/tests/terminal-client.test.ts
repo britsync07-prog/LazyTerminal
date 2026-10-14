@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { TerminalClient } from '../src/services/terminal-client.js';
+import { TerminalClient } from '../src/services/terminal-client';
 import { serializeMessage, ServerMessage } from '@lazyterminal/protocol';
 
 // Mock browser/React Native WebSocket

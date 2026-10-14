@@ -1,7 +1,7 @@
 import React, { useRef, useEffect } from 'react';
 import { View, StyleSheet, Platform } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
-import { XTERM_HTML } from '../assets/xterm-bundle.js';
+import { XTERM_HTML } from '../assets/xterm-bundle';
 
 interface TerminalViewProps {
   sessionId: string;

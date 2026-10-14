@@ -6,7 +6,7 @@ import {
   DEFAULT_COLS,
   DEFAULT_ROWS,
 } from '@lazyterminal/protocol';
-import type { ConnectionState, TerminalTab, ConnectionConfig, PairingPrompt } from '../types.js';
+import type { ConnectionState, TerminalTab, ConnectionConfig, PairingPrompt } from '../types';
 
 export type StateListener = (state: ConnectionState, error?: string) => void;
 export type OutputListener = (sessionId: string, data: string) => void;

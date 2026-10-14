@@ -7,7 +7,7 @@ import {
   StyleSheet,
   Platform,
 } from 'react-native';
-import type { TerminalTab } from '../types.js';
+import type { TerminalTab } from '../types';
 
 interface TerminalTabsProps {
   tabs: TerminalTab[];

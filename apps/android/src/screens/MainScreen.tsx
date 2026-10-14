@@ -8,12 +8,12 @@ import {
   StatusBar,
   ActivityIndicator,
 } from 'react-native';
-import { TerminalClient } from '../services/terminal-client.js';
-import { ConnectionScreen } from '../components/ConnectionScreen.js';
-import { TerminalTabs } from '../components/TerminalTabs.js';
-import { TerminalView } from '../components/TerminalView.js';
-import { ControlToolbar } from '../components/ControlToolbar.js';
-import type { ConnectionState, TerminalTab, PairingPrompt } from '../types.js';
+import { TerminalClient } from '../services/terminal-client';
+import { ConnectionScreen } from '../components/ConnectionScreen';
+import { TerminalTabs } from '../components/TerminalTabs';
+import { TerminalView } from '../components/TerminalView';
+import { ControlToolbar } from '../components/ControlToolbar';
+import type { ConnectionState, TerminalTab, PairingPrompt } from '../types';
 
 export const MainScreen: React.FC = () => {
   const clientRef = useRef<TerminalClient | null>(null);
