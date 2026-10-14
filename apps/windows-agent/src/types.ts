@@ -1,13 +1,24 @@
 import type { IPty } from 'node-pty';
 
+export type SecurityMode = 'loopback-dev' | 'lan-secure';
+
 export interface AgentConfig {
   host: string;
   port: number;
   maxSessions: number;
   shellPath?: string;
   shellArgs?: string[];
-  devMode?: boolean;
+  requireAuth?: boolean;
   pairingTimeoutMs?: number;
+}
+
+export interface AgentServerInfo {
+  host: string;
+  port: number;
+  securityMode: SecurityMode;
+  requireAuth: boolean;
+  isLoopbackOnly: boolean;
+  maxSessions: number;
 }
 
 export interface SessionInfo {

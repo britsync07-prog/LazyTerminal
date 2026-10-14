@@ -436,12 +436,12 @@ describe('LazyTerminal Agent Windows Integration Tests', () => {
     }
   }, 15000);
 
-  it('10: enforces authentication when devMode is false, and allows access via pairing flow', async () => {
-    // Start an agent with devMode: false to simulate LAN security
+  it('10: enforces authentication when requireAuth is true, rejects all unauthenticated terminal operations, and allows access via pairing flow', async () => {
+    // Start an agent with requireAuth: true
     const secureServer = new AgentServer({
       host: '127.0.0.1',
       port: 0,
-      devMode: false,
+      requireAuth: true,
       maxSessions: 3,
     });
     const addr = await secureServer.start();
@@ -449,17 +449,39 @@ describe('LazyTerminal Agent Windows Integration Tests', () => {
     const client = await createClient(addr.port);
 
     try {
-      // 1. Unauthenticated client tries to create a terminal -> rejected with UNAUTHORIZED
+      // 1. Unauthenticated client tries terminal operations -> all rejected with UNAUTHORIZED
       client.send({
         type: 'terminal:create',
         requestId: 'unauth-req',
       });
-
-      const unauthErr = await client.waitFor(
+      const unauthErr1 = await client.waitFor(
         (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
           m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
       );
-      expect(unauthErr.code).toBe(ERROR_CODES.UNAUTHORIZED);
+      expect(unauthErr1.code).toBe(ERROR_CODES.UNAUTHORIZED);
+
+      client.send({
+        type: 'terminal:input',
+        sessionId: 'fake-session',
+        data: 'dir\r\n',
+      });
+      const unauthErr2 = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+          m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+      );
+      expect(unauthErr2.code).toBe(ERROR_CODES.UNAUTHORIZED);
+
+      client.send({
+        type: 'terminal:resize',
+        sessionId: 'fake-session',
+        cols: 100,
+        rows: 30,
+      });
+      const unauthErr3 = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+          m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+      );
+      expect(unauthErr3.code).toBe(ERROR_CODES.UNAUTHORIZED);
 
       // 2. Request pairing
       client.send({
@@ -545,6 +567,76 @@ describe('LazyTerminal Agent Windows Integration Tests', () => {
     } finally {
       await client.close();
       await secureServer.stop();
+    }
+  }, 20000);
+
+  it('11: LAN mode (host 0.0.0.0) automatically enforces authentication, rejects unauthenticated commands, and allows pairing', async () => {
+    // Start an agent bound to 0.0.0.0
+    const lanServer = new AgentServer({
+      host: '0.0.0.0',
+      port: 0,
+      maxSessions: 3,
+    });
+    const info = await lanServer.start();
+
+    // Verify security mode and flags
+    expect(info.host).toBe('0.0.0.0');
+    expect(info.securityMode).toBe('lan-secure');
+    expect(info.requireAuth).toBe(true);
+    expect(info.isLoopbackOnly).toBe(false);
+
+    const client = await createClient(info.port);
+
+    try {
+      // Unauthenticated terminal creation MUST be rejected
+      client.send({
+        type: 'terminal:create',
+        requestId: 'lan-unauth-test',
+      });
+
+      const err = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+          m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+      );
+      expect(err.code).toBe(ERROR_CODES.UNAUTHORIZED);
+
+      // Perform pairing
+      client.send({
+        type: 'auth:pair_request',
+        clientName: 'Android LAN Client',
+      });
+
+      await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'auth:pair_prompt' }> =>
+          m.type === 'auth:pair_prompt',
+      );
+
+      const code = lanServer.pairingManager.getActiveRequest()!.code;
+      client.send({
+        type: 'auth:pair_verify',
+        code,
+      });
+
+      const success = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'auth:pair_success' }> =>
+          m.type === 'auth:pair_success',
+      );
+      expect(success.token).toBeDefined();
+
+      // Now create terminal
+      client.send({
+        type: 'terminal:create',
+        requestId: 'lan-auth-ok',
+      });
+
+      const created = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+          m.type === 'terminal:created' && m.requestId === 'lan-auth-ok',
+      );
+      expect(created.sessionId).toBeDefined();
+    } finally {
+      await client.close();
+      await lanServer.stop();
     }
   }, 20000);
 });

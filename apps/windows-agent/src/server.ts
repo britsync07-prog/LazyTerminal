@@ -10,7 +10,7 @@ import {
 } from '@lazyterminal/protocol';
 import { SessionRegistry, SessionRegistryError } from './session-registry.js';
 import { PairingManager } from './pairing-manager.js';
-import type { AgentConfig } from './types.js';
+import type { AgentConfig, AgentServerInfo, SecurityMode } from './types.js';
 
 export class AgentServer {
   private httpServer: http.Server | null = null;
@@ -18,20 +18,31 @@ export class AgentServer {
   public readonly sessionRegistry: SessionRegistry;
   public readonly pairingManager: PairingManager;
   private readonly config: AgentConfig;
+  public readonly isLoopbackOnly: boolean;
+  public readonly securityMode: SecurityMode;
+  private effectivePort: number;
   private readonly connectedClients = new Set<WebSocket>();
   private readonly authenticatedClients = new WeakSet<WebSocket>();
+  private readonly clientReqMap = new WeakMap<WebSocket, http.IncomingMessage>();
 
   constructor(config?: Partial<AgentConfig>) {
     const host = config?.host ?? '127.0.0.1';
-    const isLoopback = host === '127.0.0.1' || host === 'localhost';
+    this.isLoopbackOnly = host === '127.0.0.1' || host === 'localhost';
+
+    // Binding to 0.0.0.0 or non-loopback MUST always enforce authentication.
+    // In loopback mode, requireAuth defaults to false unless explicitly set to true.
+    const requireAuth = !this.isLoopbackOnly || (config?.requireAuth ?? false);
+
+    this.securityMode = !this.isLoopbackOnly || requireAuth ? 'lan-secure' : 'loopback-dev';
+    this.effectivePort = config?.port ?? 4488;
 
     this.config = {
       host,
-      port: config?.port ?? 4488,
+      port: this.effectivePort,
       maxSessions: config?.maxSessions ?? 10,
       shellPath: config?.shellPath,
       shellArgs: config?.shellArgs,
-      devMode: config?.devMode ?? isLoopback,
+      requireAuth,
       pairingTimeoutMs: config?.pairingTimeoutMs,
     };
 
@@ -46,6 +57,17 @@ export class AgentServer {
     });
 
     this.setupRegistryEvents();
+  }
+
+  public getServerInfo(): AgentServerInfo {
+    return {
+      host: this.config.host,
+      port: this.effectivePort,
+      securityMode: this.securityMode,
+      requireAuth: this.config.requireAuth!,
+      isLoopbackOnly: this.isLoopbackOnly,
+      maxSessions: this.config.maxSessions,
+    };
   }
 
   private setupRegistryEvents(): void {
@@ -68,22 +90,26 @@ export class AgentServer {
     });
   }
 
-  private isClientAuthenticated(ws: WebSocket, req: http.IncomingMessage): boolean {
-    // In devMode on loopback, client is automatically authenticated
-    const remoteAddress = req.socket.remoteAddress;
-    const isLoopback =
-      remoteAddress === '127.0.0.1' ||
-      remoteAddress === '::1' ||
-      remoteAddress === '::ffff:127.0.0.1';
+  private isClientAuthenticated(ws: WebSocket): boolean {
+    // If authentication is disabled (only permitted when bound strictly to loopback)
+    if (!this.config.requireAuth) {
+      const req = this.clientReqMap.get(ws);
+      const remoteAddress = req?.socket.remoteAddress;
+      const isLoopbackSocket =
+        remoteAddress === '127.0.0.1' ||
+        remoteAddress === '::1' ||
+        remoteAddress === '::ffff:127.0.0.1';
 
-    if (this.config.devMode && isLoopback) {
-      return true;
+      if (this.isLoopbackOnly && isLoopbackSocket) {
+        return true;
+      }
     }
 
+    // In all other cases (including all LAN connections), client MUST be in authenticated set
     return this.authenticatedClients.has(ws);
   }
 
-  public async start(): Promise<{ host: string; port: number }> {
+  public async start(): Promise<AgentServerInfo> {
     return new Promise((resolve, reject) => {
       const server = http.createServer((req, res) => {
         // Simple healthcheck on HTTP GET /
@@ -94,6 +120,8 @@ export class AgentServer {
               name: 'LazyTerminal Agent',
               status: 'running',
               host: this.config.host,
+              securityMode: this.securityMode,
+              requireAuth: this.config.requireAuth,
               activeSessions: this.sessionRegistry.getActiveSessionsCount(),
             }),
           );
@@ -116,16 +144,17 @@ export class AgentServer {
           remoteAddress === '::1' ||
           remoteAddress === '::ffff:127.0.0.1';
 
-        // If server is strictly bound to loopback and client is not loopback, reject
-        if ((this.config.host === '127.0.0.1' || this.config.host === 'localhost') && !isLoopback) {
+        // If server is strictly bound to loopback and client is not loopback, reject immediately
+        if (this.isLoopbackOnly && !isLoopback) {
           ws.close(1008, 'Forbidden: remote connections not permitted in loopback mode');
           return;
         }
 
         this.connectedClients.add(ws);
+        this.clientReqMap.set(ws, req);
 
         ws.on('message', async (raw: Buffer | string) => {
-          await this.handleClientMessage(ws, req, raw);
+          await this.handleClientMessage(ws, raw);
         });
 
         ws.on('error', (err) => {
@@ -134,6 +163,7 @@ export class AgentServer {
 
         ws.on('close', () => {
           this.connectedClients.delete(ws);
+          this.clientReqMap.delete(ws);
         });
       });
 
@@ -145,8 +175,10 @@ export class AgentServer {
         this.httpServer = server;
         this.wss = wss;
         const address = server.address();
-        const actualPort = typeof address === 'object' && address ? address.port : this.config.port;
-        resolve({ host: this.config.host, port: actualPort });
+        if (typeof address === 'object' && address) {
+          this.effectivePort = address.port;
+        }
+        resolve(this.getServerInfo());
       });
 
       server.on('error', (err) => {
@@ -157,7 +189,6 @@ export class AgentServer {
 
   private async handleClientMessage(
     ws: WebSocket,
-    req: http.IncomingMessage,
     raw: Buffer | string,
   ): Promise<void> {
     const rawString = typeof raw === 'string' ? raw : raw.toString('utf-8');
@@ -176,7 +207,7 @@ export class AgentServer {
 
     // Handle authentication / pairing messages without requiring pre-authentication
     if (msg.type === 'auth:pair_request') {
-      const pairResult = this.pairingManager.requestPairing(msg.clientName, this.config.devMode);
+      const pairResult = this.pairingManager.requestPairing(msg.clientName);
       this.sendToClient(ws, {
         type: 'auth:pair_prompt',
         challenge: pairResult.challenge,
@@ -228,7 +259,7 @@ export class AgentServer {
     }
 
     // Guard: Enforce authentication for all terminal operations
-    if (!this.isClientAuthenticated(ws, req)) {
+    if (!this.isClientAuthenticated(ws)) {
       this.sendToClient(ws, {
         type: 'terminal:error',
         code: ERROR_CODES.UNAUTHORIZED,
@@ -306,7 +337,7 @@ export class AgentServer {
   public broadcast(message: ServerMessage): void {
     const serialized = serializeMessage(message);
     for (const client of this.connectedClients) {
-      if (client.readyState === WebSocket.OPEN) {
+      if (client.readyState === WebSocket.OPEN && this.isClientAuthenticated(client)) {
         client.send(serialized);
       }
     }
