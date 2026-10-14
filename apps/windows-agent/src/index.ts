@@ -1,6 +1,7 @@
 import { AgentServer } from './server.js';
 export * from './types.js';
 export * from './session-registry.js';
+export * from './pairing-manager.js';
 export * from './server.js';
 
 async function main() {

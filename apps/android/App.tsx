@@ -1,5 +1,6 @@
-// LazyTerminal Mobile App Scaffold
-// Full UI and xterm.js WebView integration will be implemented in the mobile milestone.
+import React from 'react';
+import { MainScreen } from './src/screens/MainScreen.js';
+
 export default function App() {
-  return null;
+  return <MainScreen />;
 }

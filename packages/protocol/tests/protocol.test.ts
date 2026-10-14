@@ -155,9 +155,48 @@ describe('Protocol Validation', () => {
       const result = parseClientMessage(pingMsg);
       expect(result.success).toBe(true);
     });
+    it('parses auth messages: pair_request, pair_verify, and connect', () => {
+      const pairReq = JSON.stringify({
+        type: 'auth:pair_request',
+        clientName: 'Android Pixel 8',
+      });
+      expect(parseClientMessage(pairReq).success).toBe(true);
+
+      const pairVerify = JSON.stringify({
+        type: 'auth:pair_verify',
+        code: '123456',
+      });
+      expect(parseClientMessage(pairVerify).success).toBe(true);
+
+      const authConnect = JSON.stringify({
+        type: 'auth:connect',
+        token: 'abcdef1234567890abcdef1234567890',
+      });
+      expect(parseClientMessage(authConnect).success).toBe(true);
+    });
   });
 
   describe('parseServerMessage and serializeMessage', () => {
+    it('serializes and parses auth server messages', () => {
+      const promptMsg: ServerMessage = {
+        type: 'auth:pair_prompt',
+        challenge: 'Enter code shown on PC',
+        expiresAt: Date.now() + 60000,
+      };
+      expect(parseServerMessage(serializeMessage(promptMsg)).success).toBe(true);
+
+      const successMsg: ServerMessage = {
+        type: 'auth:pair_success',
+        token: 'token-12345678901234567890',
+      };
+      expect(parseServerMessage(serializeMessage(successMsg)).success).toBe(true);
+
+      const authOk: ServerMessage = {
+        type: 'auth:success',
+      };
+      expect(parseServerMessage(serializeMessage(authOk)).success).toBe(true);
+    });
+
     it('serializes and parses terminal:output message', () => {
       const serverMsg: ServerMessage = {
         type: 'terminal:output',

@@ -27,17 +27,16 @@
 
 ---
 
-## 2. Milestone 001 Status
-
-Milestone 001 establishes the repository foundation, shared protocol, and a verified Windows PTY agent:
+## 2. Milestone 001 & 002 Status
 
 | Component | Status | Details |
 |---|---|---|
-| **Monorepo** | Verified | `pnpm` workspace linking protocol, agent, tests, and mobile scaffold |
-| **Shared Protocol** | Verified | TypeScript types, constants, and Zod runtime validation (`@lazyterminal/protocol`) |
-| **Windows PTY Agent** | Verified | Local WebSocket server on `127.0.0.1`, multi-session ConPTY PowerShell manager (`@lazyterminal/windows-agent`) |
-| **Unit & Integration Tests** | Verified | 25 automated Vitest tests covering PTY lifecycle, variable isolation, Ctrl+C interrupt, resize, and disconnects |
-| **Android Mobile App** | Scaffolded | React Native + Expo structure ready for Milestone 002 UI development (`@lazyterminal/android`) |
+| **Monorepo** | Verified | `pnpm` workspace linking protocol, agent, tests, and mobile application |
+| **Shared Protocol** | Verified | TypeScript types, constants, pairing/auth schemas, and Zod runtime validation (`@lazyterminal/protocol`) |
+| **Windows PTY Agent** | Verified | Multi-session ConPTY PowerShell manager with loopback & secure LAN pairing support (`@lazyterminal/windows-agent`) |
+| **Android Mobile App** | Verified | React Native + Expo app with connection screen, xterm.js WebView, multi-tabs, and touch control toolbar (`@lazyterminal/android`) |
+| **Pairing & Security** | Verified | 6-digit cryptographic pairing flow with PC confirmation, rate limiting, and 256-bit token authentication |
+| **Automated Tests** | Verified | 40 automated Vitest tests (protocol unit, agent unit, Windows PTY integration, and mobile client tests) |
 | **CI Automation** | Verified | GitHub Actions workflow on Windows runner |
 
 ---

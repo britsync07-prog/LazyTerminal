@@ -6,6 +6,8 @@ export interface AgentConfig {
   maxSessions: number;
   shellPath?: string;
   shellArgs?: string[];
+  devMode?: boolean;
+  pairingTimeoutMs?: number;
 }
 
 export interface SessionInfo {

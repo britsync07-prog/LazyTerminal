@@ -435,4 +435,116 @@ describe('LazyTerminal Agent Windows Integration Tests', () => {
       await client.close();
     }
   }, 15000);
+
+  it('10: enforces authentication when devMode is false, and allows access via pairing flow', async () => {
+    // Start an agent with devMode: false to simulate LAN security
+    const secureServer = new AgentServer({
+      host: '127.0.0.1',
+      port: 0,
+      devMode: false,
+      maxSessions: 3,
+    });
+    const addr = await secureServer.start();
+
+    const client = await createClient(addr.port);
+
+    try {
+      // 1. Unauthenticated client tries to create a terminal -> rejected with UNAUTHORIZED
+      client.send({
+        type: 'terminal:create',
+        requestId: 'unauth-req',
+      });
+
+      const unauthErr = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+          m.type === 'terminal:error' && m.code === ERROR_CODES.UNAUTHORIZED,
+      );
+      expect(unauthErr.code).toBe(ERROR_CODES.UNAUTHORIZED);
+
+      // 2. Request pairing
+      client.send({
+        type: 'auth:pair_request',
+        clientName: 'Android Device Integration Test',
+      });
+
+      const prompt = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'auth:pair_prompt' }> =>
+          m.type === 'auth:pair_prompt',
+      );
+      expect(prompt.challenge).toBeDefined();
+
+      const activeReq = secureServer.pairingManager.getActiveRequest();
+      expect(activeReq).toBeDefined();
+      const code = activeReq!.code;
+
+      // 3. Verify pairing code with wrong code -> returns error
+      client.send({
+        type: 'auth:pair_verify',
+        code: '999999',
+      });
+
+      const wrongCodeErr = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:error' }> =>
+          m.type === 'terminal:error' && m.code === ERROR_CODES.AUTH_FAILED,
+      );
+      expect(wrongCodeErr.code).toBe(ERROR_CODES.AUTH_FAILED);
+
+      // 4. Verify pairing code with correct code -> returns token
+      client.send({
+        type: 'auth:pair_verify',
+        code,
+      });
+
+      const pairSuccess = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'auth:pair_success' }> =>
+          m.type === 'auth:pair_success',
+      );
+      expect(pairSuccess.token).toBeDefined();
+      const token = pairSuccess.token;
+
+      // 5. Now client is authenticated! Creating terminal succeeds
+      client.send({
+        type: 'terminal:create',
+        requestId: 'auth-create-req',
+      });
+
+      const created = await client.waitFor(
+        (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+          m.type === 'terminal:created' && m.requestId === 'auth-create-req',
+      );
+      expect(created.sessionId).toBeDefined();
+
+      // 6. Connect a NEW client using auth:connect with the paired token
+      const client2 = await createClient(addr.port);
+      try {
+        client2.send({
+          type: 'auth:connect',
+          token,
+        });
+
+        const authOk = await client2.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'auth:success' }> =>
+            m.type === 'auth:success',
+        );
+        expect(authOk.type).toBe('auth:success');
+
+        // Can now create terminal from client2
+        client2.send({
+          type: 'terminal:create',
+          requestId: 'client2-create',
+        });
+
+        const created2 = await client2.waitFor(
+          (m): m is Extract<ServerMessage, { type: 'terminal:created' }> =>
+            m.type === 'terminal:created' && m.requestId === 'client2-create',
+        );
+        expect(created2.sessionId).toBeDefined();
+      } finally {
+        await client2.close();
+      }
+    } finally {
+      await client.close();
+      await secureServer.stop();
+    }
+  }, 20000);
 });

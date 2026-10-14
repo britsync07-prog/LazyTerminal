@@ -8,11 +8,17 @@ import {
   TerminalInterruptMessageSchema,
   TerminalCloseMessageSchema,
   PingMessageSchema,
+  AuthPairRequestMessageSchema,
+  AuthPairVerifyMessageSchema,
+  AuthConnectMessageSchema,
   TerminalCreatedMessageSchema,
   TerminalOutputMessageSchema,
   TerminalExitMessageSchema,
   TerminalErrorMessageSchema,
   PongMessageSchema,
+  AuthPairPromptMessageSchema,
+  AuthPairSuccessMessageSchema,
+  AuthSuccessMessageSchema,
 } from './schemas.js';
 
 export type ClientMessage = z.input<typeof ClientMessageSchema>;
@@ -29,11 +35,19 @@ export type TerminalInterruptMessage = z.infer<typeof TerminalInterruptMessageSc
 export type TerminalCloseMessage = z.infer<typeof TerminalCloseMessageSchema>;
 export type PingMessage = z.infer<typeof PingMessageSchema>;
 
+export type AuthPairRequestMessage = z.infer<typeof AuthPairRequestMessageSchema>;
+export type AuthPairVerifyMessage = z.infer<typeof AuthPairVerifyMessageSchema>;
+export type AuthConnectMessage = z.infer<typeof AuthConnectMessageSchema>;
+
 export type TerminalCreatedMessage = z.infer<typeof TerminalCreatedMessageSchema>;
 export type TerminalOutputMessage = z.infer<typeof TerminalOutputMessageSchema>;
 export type TerminalExitMessage = z.infer<typeof TerminalExitMessageSchema>;
 export type TerminalErrorMessage = z.infer<typeof TerminalErrorMessageSchema>;
 export type PongMessage = z.infer<typeof PongMessageSchema>;
+
+export type AuthPairPromptMessage = z.infer<typeof AuthPairPromptMessageSchema>;
+export type AuthPairSuccessMessage = z.infer<typeof AuthPairSuccessMessageSchema>;
+export type AuthSuccessMessage = z.infer<typeof AuthSuccessMessageSchema>;
 
 export type ParseResult<T> =
   | { success: true; data: T }

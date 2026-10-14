@@ -49,6 +49,21 @@ export const PingMessageSchema = z.object({
   timestamp: z.number().optional(),
 });
 
+export const AuthPairRequestMessageSchema = z.object({
+  type: z.literal('auth:pair_request'),
+  clientName: z.string().max(64).optional(),
+});
+
+export const AuthPairVerifyMessageSchema = z.object({
+  type: z.literal('auth:pair_verify'),
+  code: z.string().min(4).max(16),
+});
+
+export const AuthConnectMessageSchema = z.object({
+  type: z.literal('auth:connect'),
+  token: z.string().min(16).max(256),
+});
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   TerminalCreateMessageSchema,
   TerminalInputMessageSchema,
@@ -56,6 +71,9 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   TerminalInterruptMessageSchema,
   TerminalCloseMessageSchema,
   PingMessageSchema,
+  AuthPairRequestMessageSchema,
+  AuthPairVerifyMessageSchema,
+  AuthConnectMessageSchema,
 ]);
 
 // Agent to Client messages
@@ -93,10 +111,28 @@ export const PongMessageSchema = z.object({
   timestamp: z.number().optional(),
 });
 
+export const AuthPairPromptMessageSchema = z.object({
+  type: z.literal('auth:pair_prompt'),
+  challenge: z.string(),
+  expiresAt: z.number(),
+});
+
+export const AuthPairSuccessMessageSchema = z.object({
+  type: z.literal('auth:pair_success'),
+  token: z.string(),
+});
+
+export const AuthSuccessMessageSchema = z.object({
+  type: z.literal('auth:success'),
+});
+
 export const ServerMessageSchema = z.discriminatedUnion('type', [
   TerminalCreatedMessageSchema,
   TerminalOutputMessageSchema,
   TerminalExitMessageSchema,
   TerminalErrorMessageSchema,
   PongMessageSchema,
+  AuthPairPromptMessageSchema,
+  AuthPairSuccessMessageSchema,
+  AuthSuccessMessageSchema,
 ]);
