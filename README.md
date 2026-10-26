@@ -182,6 +182,13 @@ pnpm test
 | `pnpm build:apk` | Generates standalone Android APK using native Gradle |
 | `pnpm dev:android` | Starts Expo development server for Android |
 
+## Contact
+
+- 📧 Email: [saimon@ascentraconsulting.co.uk](mailto:saimon@ascentraconsulting.co.uk)
+- 💼 LinkedIn: [Musfiqur Rahman Saimon](https://www.linkedin.com/in/musfiqur-rahman-saimon-a5994b3aa)
+- 🐙 GitHub: [@britsync07-prog](https://github.com/britsync07-prog)
+- 🌐 Portfolio: [brit-os.pages.dev](https://brit-os.pages.dev/)
+
 ---
 
 ## 8. License
